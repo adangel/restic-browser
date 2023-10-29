@@ -67,7 +67,10 @@ public class Main {
         System.out.println("MasterKey: " + masterkeyJson.toString(2));
 
         Poly1305 mac = new Poly1305(AESEngine.newInstance());
-        CipherParameters polyparams = new KeyParameter(authenticationKey, 0, 32);
+        byte[] authenticationKeySwapped = new byte[32];
+        System.arraycopy(authenticationKey, 16, authenticationKeySwapped, 0, 16); // r portion first for bouncycastle
+        System.arraycopy(authenticationKey, 0, authenticationKeySwapped, 16, 16); // key last for bouncycastle
+        CipherParameters polyparams = new KeyParameter(authenticationKeySwapped, 0, 32);
         CipherParameters ivparam = new ParametersWithIV(polyparams, data, 0, 16);
         mac.init(ivparam);
         mac.update(data, 16, data.length - 16 - 16);
