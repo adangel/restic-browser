@@ -7,10 +7,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.List;
-import java.util.logging.Level;
 import java.util.logging.LogManager;
-import java.util.logging.Logger;
 
+import org.adangel.resticbrowser.models.SnapshotWithId;
 import org.json.JSONObject;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -37,6 +36,15 @@ class RepositoryTest {
 
         JSONObject index = repository.readFile(Path.of("index/cccab80cdb489d6d416e283dd9019d06086c3a82b63fc45714e88dea9073f4a0"));
         System.out.println("index.toString(2) = " + index.toString(2));
+    }
+
+    @Test
+    void listSnapshots2() throws Exception {
+        Repository repository = new Repository(Path.of("src/test/resources/repos/repo1"), "test");
+        List<SnapshotWithId> snapshots = repository.listSnapshots2();
+        assertEquals(1, snapshots.size());
+        assertEquals("cc5dc9a1e093d1670edd2bd2385b1313f867d98a2e175285ecc1c303c3b0525d", snapshots.getFirst().id());
+        assertEquals("adangel", snapshots.getFirst().snapshot().hostname());
     }
 
     @Test

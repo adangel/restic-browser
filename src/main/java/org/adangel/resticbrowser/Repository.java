@@ -2,7 +2,6 @@ package org.adangel.resticbrowser;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
-import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -15,7 +14,6 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
-
 import javax.crypto.BadPaddingException;
 import javax.crypto.Cipher;
 import javax.crypto.IllegalBlockSizeException;
@@ -23,6 +21,8 @@ import javax.crypto.NoSuchPaddingException;
 import javax.crypto.spec.IvParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
 
+import org.adangel.resticbrowser.models.Snapshot;
+import org.adangel.resticbrowser.models.SnapshotWithId;
 import org.apache.commons.compress.compressors.zstandard.ZstdCompressorInputStream;
 import org.bouncycastle.crypto.CipherParameters;
 import org.bouncycastle.crypto.engines.AESEngine;
@@ -33,8 +33,12 @@ import org.bouncycastle.crypto.params.ParametersWithIV;
 import org.bouncycastle.util.encoders.Base64;
 import org.json.JSONObject;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+
 public class Repository {
     private static final Logger LOGGER = Logger.getLogger(Repository.class.getName());
+
+    private static final ObjectMapper MAPPER = new ObjectMapper().findAndRegisterModules();
 
     private final Path path;
     private SecretKeySpec masterKeySpec;
@@ -188,5 +192,19 @@ public class Repository {
 
     public Path getPath() {
         return path;
+    }
+
+    public List<SnapshotWithId> listSnapshots2() throws IOException {
+        try (Stream<Path> snapshotStream = Files.list(path.resolve("snapshots"))) {
+            return snapshotStream.map(file -> {
+                try {
+                    String data = readFile(path.relativize(file)).toString();
+                    Snapshot snapshot = MAPPER.readValue(data, Snapshot.class);
+                    return new SnapshotWithId(file.getFileName().toString(), snapshot);
+                } catch (Exception e) {
+                    throw new RuntimeException(e);
+                }
+            }).collect(Collectors.toList());
+        }
     }
 }
