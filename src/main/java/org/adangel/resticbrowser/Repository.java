@@ -10,8 +10,10 @@ import java.security.InvalidAlgorithmParameterException;
 import java.security.InvalidKeyException;
 import java.security.NoSuchAlgorithmException;
 import java.util.Arrays;
+import java.util.List;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import javax.crypto.BadPaddingException;
@@ -168,5 +170,23 @@ public class Repository {
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
+    }
+
+    public List<JSONObject> listSnapshots() throws IOException {
+        try (Stream<Path> snapshotStream = Files.list(path.resolve("snapshots"))) {
+            return snapshotStream.map(file -> {
+                try {
+                    JSONObject jsonObject = readFile(path.relativize(file));
+                    jsonObject.put("id", path.getFileName().toString());
+                    return jsonObject;
+                } catch (Exception e) {
+                    throw new RuntimeException(e);
+                }
+            }).collect(Collectors.toList());
+        }
+    }
+
+    public Path getPath() {
+        return path;
     }
 }
