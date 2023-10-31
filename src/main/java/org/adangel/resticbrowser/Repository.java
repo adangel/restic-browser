@@ -2,12 +2,14 @@ package org.adangel.resticbrowser;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.io.RandomAccessFile;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.InvalidAlgorithmParameterException;
 import java.security.InvalidKeyException;
 import java.security.NoSuchAlgorithmException;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.logging.Level;
@@ -21,8 +23,10 @@ import javax.crypto.NoSuchPaddingException;
 import javax.crypto.spec.IvParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
 
+import org.adangel.resticbrowser.models.Index;
 import org.adangel.resticbrowser.models.Snapshot;
 import org.adangel.resticbrowser.models.SnapshotWithId;
+import org.adangel.resticbrowser.models.Tree;
 import org.apache.commons.compress.compressors.zstandard.ZstdCompressorInputStream;
 import org.bouncycastle.crypto.CipherParameters;
 import org.bouncycastle.crypto.engines.AESEngine;
@@ -134,19 +138,15 @@ public class Repository {
         return masterKeySpec != null;
     }
 
-    public JSONObject readFile(Path file) throws IOException, NoSuchPaddingException, NoSuchAlgorithmException, InvalidAlgorithmParameterException, InvalidKeyException, IllegalBlockSizeException, BadPaddingException {
-        byte[] encryptedData = Files.readAllBytes(path.resolve(file));
+    private byte[] decryptBytes(byte[] encryptedData, boolean uncompress) throws IOException, NoSuchPaddingException, NoSuchAlgorithmException, InvalidAlgorithmParameterException, InvalidKeyException, IllegalBlockSizeException, BadPaddingException {
         IvParameterSpec iv = new IvParameterSpec(encryptedData, 0, 16);
         Cipher cipher = Cipher.getInstance("AES/CTR/NoPadding");
         cipher.init(Cipher.DECRYPT_MODE, masterKeySpec, iv);
         byte[] decrypted = cipher.doFinal(encryptedData, 16, encryptedData.length - 16 - 16);
-        JSONObject json;
-        if (decrypted[0] == '{' || decrypted[0] == '[') {
-            json = new JSONObject(new String(decrypted, StandardCharsets.UTF_8));
-        } else {
-            ZstdCompressorInputStream decompressedStream = new ZstdCompressorInputStream(new ByteArrayInputStream(decrypted, 1, decrypted.length - 1));
-            byte[] decompressed = decompressedStream.readAllBytes();
-            json = new JSONObject(new String(decompressed, StandardCharsets.UTF_8));
+
+        if (uncompress) {
+            ZstdCompressorInputStream decompressedStream = new ZstdCompressorInputStream(new ByteArrayInputStream(decrypted));
+            decrypted = decompressedStream.readAllBytes();
         }
 
         Poly1305 mac = new Poly1305(AESEngine.newInstance());
@@ -162,6 +162,21 @@ public class Repository {
         if (!Arrays.equals(originalMac, calculatedMac)) {
             LOGGER.severe("MAC doesn't match");
             throw new RuntimeException("MAC Doesn't match");
+        }
+
+        return decrypted;
+    }
+
+    public JSONObject readFile(Path file) throws IOException, NoSuchPaddingException, NoSuchAlgorithmException, InvalidAlgorithmParameterException, InvalidKeyException, IllegalBlockSizeException, BadPaddingException {
+        byte[] encryptedData = Files.readAllBytes(path.resolve(file));
+        byte[] decrypted = decryptBytes(encryptedData, false);
+        JSONObject json;
+        if (decrypted[0] == '{' || decrypted[0] == '[') {
+            json = new JSONObject(new String(decrypted, StandardCharsets.UTF_8));
+        } else {
+            ZstdCompressorInputStream decompressedStream = new ZstdCompressorInputStream(new ByteArrayInputStream(decrypted, 1, decrypted.length - 1));
+            byte[] decompressed = decompressedStream.readAllBytes();
+            json = new JSONObject(new String(decompressed, StandardCharsets.UTF_8));
         }
 
         return json;
@@ -205,6 +220,70 @@ public class Repository {
                     throw new RuntimeException(e);
                 }
             }).collect(Collectors.toList());
+        }
+    }
+
+    public Tree readTree(String tree) throws IOException, InvalidAlgorithmParameterException, NoSuchPaddingException, IllegalBlockSizeException, NoSuchAlgorithmException, BadPaddingException, InvalidKeyException {
+        return MAPPER.readValue(readContent(tree), Tree.class);
+    }
+
+    record FoundBlob(Index.Pack pack, Index.Pack.Blob blob) {}
+
+    private FoundBlob findBlob(String sha256) throws IOException {
+        List<Index> indexes = new ArrayList<>();
+        LOGGER.info("Loading indexes...");
+        try (Stream<Path> indexStream = Files.list(path.resolve("index"))) {
+            indexStream.map(file -> {
+                try {
+                    String indexData = readFile(path.relativize(file)).toString();
+                    Index index = MAPPER.readValue(indexData, Index.class);
+                    LOGGER.fine(" index " + file.getFileName().toString() + " loaded");
+                    return index;
+                } catch (Exception e) {
+                    throw new RuntimeException(e);
+                }
+            }).forEach(indexes::add);
+        }
+
+        LOGGER.info("Searching for sha256 " + sha256);
+        Index.Pack foundPack = null;
+        Index.Pack.Blob foundBlob = null;
+        for (Index index : indexes) {
+            for (Index.Pack pack : index.packs()) {
+                for (Index.Pack.Blob blob : pack.blobs()) {
+                    if (blob.id().equals(sha256)) {
+                        foundPack = pack;
+                        foundBlob = blob;
+                        LOGGER.info("Found blob in pack " + foundPack.id());
+                        LOGGER.info("Blob: " + foundBlob);
+                        break;
+                    }
+                }
+                if (foundPack != null) break;
+            }
+            if (foundPack != null) break;
+        }
+
+        if (foundPack == null) {
+            throw new IllegalStateException("Didn't find sha256 in index");
+        }
+
+        return new FoundBlob(foundPack, foundBlob);
+    }
+
+    public byte[] readContent(String sha256) throws IOException, InvalidAlgorithmParameterException, NoSuchPaddingException, IllegalBlockSizeException, NoSuchAlgorithmException, BadPaddingException, InvalidKeyException {
+        FoundBlob foundBlob = findBlob(sha256);
+
+        Path packFile = path.resolve("data").resolve(foundBlob.pack().id().substring(0, 2)).resolve(foundBlob.pack().id());
+        try (RandomAccessFile raf = new RandomAccessFile(packFile.toFile(), "r")) {
+            raf.seek(foundBlob.blob().offset());
+            byte[] encryptedBlob = new byte[foundBlob.blob().length()];
+            int readBytes = raf.read(encryptedBlob);
+            if (readBytes != foundBlob.blob().length()) {
+                throw new IllegalStateException("Couldn't enough data");
+            }
+
+            return decryptBytes(encryptedBlob, foundBlob.blob().uncompressed_length() != 0);
         }
     }
 }

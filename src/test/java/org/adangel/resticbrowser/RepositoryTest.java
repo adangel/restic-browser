@@ -5,11 +5,14 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.logging.LogManager;
 
+import org.adangel.resticbrowser.models.Snapshot;
 import org.adangel.resticbrowser.models.SnapshotWithId;
+import org.adangel.resticbrowser.models.Tree;
 import org.json.JSONObject;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -57,5 +60,22 @@ class RepositoryTest {
     void invalidPassword() throws IOException {
         Exception exception = assertThrows(Exception.class, () -> new Repository(Path.of("src/test/resources/repos/repo1"), "wrong_password"));
         assertEquals("Wrong password", exception.getMessage());
+    }
+
+    @Test
+    void readTree() throws Exception {
+        Repository repository = new Repository(Path.of("src/test/resources/repos/repo1"), "test");
+        Snapshot snapshot = repository.listSnapshots2().getFirst().snapshot();
+        Tree tree = repository.readTree(snapshot.tree());
+        assertEquals(1, tree.nodes().size());
+        assertEquals("test.txt", tree.nodes().getFirst().name());
+        assertEquals("c9d04c9565fc665c80681fb1d829938026871f66e14f501e08531df66938a789", tree.nodes().getFirst().content().getFirst());
+    }
+
+    @Test
+    void readContent() throws Exception {
+        Repository repository = new Repository(Path.of("src/test/resources/repos/repo1"), "test");
+        byte[] data = repository.readContent("c9d04c9565fc665c80681fb1d829938026871f66e14f501e08531df66938a789");
+        assertEquals("Test\n", new String(data, StandardCharsets.UTF_8));
     }
 }
