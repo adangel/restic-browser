@@ -89,6 +89,27 @@ class ResticPathTest {
         assertEquals("/abc", other.toString());
     }
 
+    @Test
+    void testRelativize() {
+        Path path1 = new ResticPath(null, "/a/b");
+        Path path2 = new ResticPath(null, "/a/b/c/d");
+        Path path3 = new ResticPath(null, "/x/y");
+        Path path4 = new ResticPath(null, "foo");
+        Path path5 = new ResticPath(null, "bar");
+        Path path6 = new ResticPath(null, "/a/x");
+        Path path7 = new ResticPath(null, "/");
+        Path path8 = new ResticPath(null, "/a");
+        assertEquals("", path1.relativize(path1).toString());
+        assertEquals("", path4.relativize(path4).toString());
+        assertEquals("c/d", path1.relativize(path2).toString());
+        assertEquals("../..", path2.relativize(path1).toString());
+        assertEquals("../../x/y", path1.relativize(path3).toString());
+        assertThrows(IllegalArgumentException.class, () -> path1.relativize(path4).toString());
+        assertThrows(IllegalArgumentException.class, () -> path4.relativize(path1).toString());
+        assertEquals("../bar", path4.relativize(path5).toString());
+        //TODO assertEquals("../../../x", path2.relativize(path6).toString());
+        assertEquals("a", path7.relativize(path8).toString());
+    }
 
     @Test
     void testToUri() throws Exception {

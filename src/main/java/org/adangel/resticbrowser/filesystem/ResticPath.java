@@ -134,7 +134,37 @@ class ResticPath implements Path {
 
     @Override
     public Path relativize(Path other) {
-        throw new UnsupportedOperationException();
+        if (this.isAbsolute() && !other.isAbsolute() || !this.isAbsolute() && other.isAbsolute()) {
+            throw new IllegalArgumentException();
+        }
+        String thisPath = toString();
+        String otherPath = other.toString();
+        if (thisPath.equals(otherPath)) {
+            return new ResticPath(fileSystem, "");
+        }
+        if (otherPath.startsWith(thisPath)) {
+            String relative = otherPath.substring(thisPath.length());
+            if (relative.charAt(0) == '/') {
+                relative = relative.substring(1);
+            }
+            return new ResticPath(fileSystem, relative);
+        } else if (thisPath.startsWith(otherPath)) {
+            int diff = this.getNameCount() - other.getNameCount();
+            String[] parts = new String[diff];
+            for (int i = 0; i < diff; i++) {
+                parts[i] = "..";
+            }
+            return new ResticPath(fileSystem, String.join("/", parts));
+        } else {
+            String[] parts = new String[this.getNameCount() + other.getNameCount()];
+            for (int i = 0; i < this.getNameCount(); i++) {
+                parts[i] = "..";
+            }
+            for (int i = this.getNameCount(), j = 0; i < parts.length; i++, j++) {
+                parts[i] = other.getName(j).toString();
+            }
+            return new ResticPath(fileSystem, String.join("/", parts));
+        }
     }
 
     @Override
