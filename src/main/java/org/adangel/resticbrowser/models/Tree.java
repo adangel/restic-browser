@@ -16,16 +16,19 @@ public record Tree(List<Node> nodes) {
     }
     public record Node(String name,
                 NodeType type,
-                int mode,
+                long mode,
                 OffsetDateTime mtime,
                 OffsetDateTime atime,
                 OffsetDateTime ctime,
                 int uid,
                 int gid,
                 String user,
-                int inode,
+                String group,
+                long inode,
+                long device_id,
                 long size,
                 int links,
+                String linktarget,
                 List<String> content,
                 String subtree) {};
 }
