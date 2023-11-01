@@ -1,10 +1,41 @@
 # restic-browser
 
-https://restic.readthedocs.io/en/stable/100_references.html
+Java-based implementation of a browser for restic repositories.
+[restic](https://restic.net/) is a modern backup program.
 
-## Ideas / Features
-* Create a `java.nio.file.spi.FileSystemProvider` that can browse a restic repository
+## Status
+
+* Early prototype status, not fully functional.
+* PoC working: a `java.nio.file.FileSystem` that allows browsing a restic repository with e.g. `Files.walkTree`.
+* PoC working: simple webserver that exposes this filesystem
+* PoC working: fuse mount of this filesystem
+
+## TODOs
+
+* remove json lib and only use jackson databinding
+* modularize (module-info.java)
+* create jimage/jpackage versions
+* finish implementation:
+  * caching for index
+  * support traversing deeper nested tree structures
+  * support v1 and v2 repo formats and legacy layout
+  * don't load the files completely into memory, use streams
+  * respect locks in restic repo
+  * cleanup
+  * error handling
+* simple GUI for starting either webserver or mount
+* add symlinks for latest, shorten sha256 ids/filenames
+* testing with real world repository
+
+## Implementation details
+
+* restic repository specification: <https://restic.readthedocs.io/en/stable/100_references.html>
+* custom nio FileSystem: see [java.nio.file.spi.FileSystemProvider](https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/nio/file/spi/FileSystemProvider.html)
 * Expose this FileSystem via `com.sun.net.httpserver.SimpleFileServer`
   (see [JEP 408: Simple Web Server](https://openjdk.org/jeps/408))
 * Expose this FileSystem with FUSE, e.g. [winfsp](https://winfsp.dev/doc/Known-File-Systems/)
   / [jnr-fuse](https://github.com/SerCeMan/jnr-fuse).
+
+## License
+
+MIT License
