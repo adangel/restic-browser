@@ -1,8 +1,10 @@
 package org.adangel.resticbrowser.filesystem;
 
+import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.net.URI;
 import java.nio.channels.SeekableByteChannel;
+import java.nio.file.AccessDeniedException;
 import java.nio.file.AccessMode;
 import java.nio.file.CopyOption;
 import java.nio.file.DirectoryStream;
@@ -22,7 +24,7 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * URI syntax: <pre>restic:{repoPath}!{entry}</pre>
+ * URI syntax: <pre>restic:{entry}?repoPath={repoPath}</pre>
  */
 public class ResticFileSystemProvider extends FileSystemProvider {
     private final Map<Path, ResticFileSystem> filesystems = new HashMap<>();
@@ -83,7 +85,7 @@ public class ResticFileSystemProvider extends FileSystemProvider {
 
     @Override
     public SeekableByteChannel newByteChannel(Path path, Set<? extends OpenOption> options, FileAttribute<?>... attrs) throws IOException {
-        throw new UnsupportedOperationException();
+        return ((ResticPath) path).newByteChannel(options, attrs);
     }
 
     @Override
@@ -128,7 +130,19 @@ public class ResticFileSystemProvider extends FileSystemProvider {
 
     @Override
     public void checkAccess(Path path, AccessMode... modes) throws IOException {
-        throw new UnsupportedOperationException();
+        if (path.toString().endsWith("index.html") || path.toString().endsWith("index.htm")) {
+            throw new FileNotFoundException();
+        }
+        for (AccessMode mode : modes) {
+            switch (mode) {
+                case WRITE, EXECUTE:
+                    throw new AccessDeniedException(path.toString());
+                case READ:
+                    continue;
+                default:
+                    throw new UnsupportedOperationException();
+            }
+        }
     }
 
     @Override
@@ -138,7 +152,8 @@ public class ResticFileSystemProvider extends FileSystemProvider {
 
     @Override
     public <A extends BasicFileAttributes> A readAttributes(Path path, Class<A> type, LinkOption... options) throws IOException {
-        throw new UnsupportedOperationException();
+        ResticPath resticPath = (ResticPath) path;
+        return resticPath.readAttributes();
     }
 
     @Override
