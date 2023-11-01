@@ -10,25 +10,34 @@ import java.util.Map;
 
 import org.adangel.resticbrowser.filesystem.ResticFileSystemProvider;
 
+import com.sun.net.httpserver.HttpServer;
 import com.sun.net.httpserver.SimpleFileServer;
 
 public class WebServer {
-    public static void main(String[] args) throws IOException {
-        int port = 8080;
+    private final int port;
+    private final HttpServer server;
+    public WebServer(int port, Path resticRepoPath, char[] password) throws IOException {
         System.out.println("Starting server at port " + port + "...");
-        var server = SimpleFileServer.createFileServer(new InetSocketAddress(port), getResticRootPath(), SimpleFileServer.OutputLevel.VERBOSE);
-        server.start();
 
+        ResticFileSystemProvider provider = new ResticFileSystemProvider();
+        FileSystem fileSystem = provider.newFileSystem(resticRepoPath, Map.of("RESTIC_PASSWORD", new String(password)));
+        Path resticRootPath = fileSystem.getPath("/");
+
+        this.port = port;
+        server = SimpleFileServer.createFileServer(new InetSocketAddress(port), resticRootPath, SimpleFileServer.OutputLevel.VERBOSE);
+    }
+
+    public void start() throws IOException {
+        server.start();
         Desktop.getDesktop().browse(URI.create("http://localhost:" + port));
     }
 
-    private static Path getRootPath() {
-        return Path.of(".").toAbsolutePath();
+    public void stop() {
+        server.stop(0);
     }
 
-    private static Path getResticRootPath() throws IOException {
-        ResticFileSystemProvider provider = new ResticFileSystemProvider();
-        FileSystem fileSystem = provider.newFileSystem(Path.of("src/test/resources/repos/repo1"), Map.of("RESTIC_PASSWORD", "test"));
-        return fileSystem.getPath("/");
+    public static void main(String[] args) throws IOException {
+        WebServer webServer = new WebServer(8080, Path.of("src/test/resources/repos/repo1"), "test".toCharArray());
+        webServer.start();
     }
 }
