@@ -23,7 +23,10 @@ import javax.crypto.NoSuchPaddingException;
 import javax.crypto.spec.IvParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
 
+import org.adangel.resticbrowser.models.Config;
 import org.adangel.resticbrowser.models.Index;
+import org.adangel.resticbrowser.models.Key;
+import org.adangel.resticbrowser.models.Masterkey;
 import org.adangel.resticbrowser.models.Snapshot;
 import org.adangel.resticbrowser.models.SnapshotWithId;
 import org.adangel.resticbrowser.models.Tree;
@@ -35,7 +38,6 @@ import org.bouncycastle.crypto.macs.Poly1305;
 import org.bouncycastle.crypto.params.KeyParameter;
 import org.bouncycastle.crypto.params.ParametersWithIV;
 import org.bouncycastle.util.encoders.Base64;
-import org.json.JSONObject;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 
@@ -59,11 +61,10 @@ public class Repository {
             boolean foundMasterKey = keyFileStream.anyMatch(keyFile -> {
                 try {
                     LOGGER.fine("Trying " + keyFile + " ...");
-                    JSONObject key = new JSONObject(Files.readString(keyFile));
-                    LOGGER.fine("key = " + key.toString(2));
+                    Key key = MAPPER.readValue(Files.readString(keyFile), Key.class);
 
-                    byte[] bytes = SCrypt.generate(password.getBytes(StandardCharsets.UTF_8), Base64.decode(key.getString("salt")),
-                            key.getInt("N"), key.getInt("r"), key.getInt("p"), 64);
+                    byte[] bytes = SCrypt.generate(password.getBytes(StandardCharsets.UTF_8), Base64.decode(key.salt()),
+                            key.N(), key.r(), key.p(), 64);
 
                     // AES-256
                     byte[] aes256Key = new byte[32];
@@ -77,14 +78,14 @@ public class Repository {
                      * In the first 16 bytes of each encrypted file the initialisation vector (IV) is stored. It is followed by
                      * the encrypted data and completed by the 16 byte MAC. The format is: IV || CIPHERTEXT || MAC
                      */
-                    byte[] data = Base64.decode(key.getString("data"));
+                    byte[] data = Base64.decode(key.data());
 
                     IvParameterSpec iv = new IvParameterSpec(data, 0, 16);
                     SecretKeySpec secretKeySpec = new SecretKeySpec(aes256Key, "AES");
                     Cipher cipher = Cipher.getInstance("AES/CTR/NoPadding");
                     cipher.init(Cipher.DECRYPT_MODE, secretKeySpec, iv);
-                    byte[] masterkey = cipher.doFinal(data, 16, data.length - 16 - 16);
-                    JSONObject masterkeyJson = new JSONObject(new String(masterkey, StandardCharsets.UTF_8));
+                    byte[] masterkeyBytes = cipher.doFinal(data, 16, data.length - 16 - 16);
+                    Masterkey masterkey = MAPPER.readValue(masterkeyBytes, Masterkey.class);
 
                     Poly1305 mac = new Poly1305(AESEngine.newInstance());
                     byte[] authenticationKeySwapped = new byte[32];
@@ -105,13 +106,13 @@ public class Repository {
                         return false;
                     }
 
-                    masterKeySpec = new SecretKeySpec(Base64.decode(masterkeyJson.getString("encrypt")), "AES");
+                    masterKeySpec = new SecretKeySpec(Base64.decode(masterkey.encrypt()), "AES");
 
-                    byte[] mac_r = Base64.decode(masterkeyJson.getJSONObject("mac").getString("r"));
+                    byte[] mac_r = Base64.decode(masterkey.mac().r());
                     if (mac_r.length != 16) {
                         throw new IllegalStateException("mac_r is not 16 bytes");
                     }
-                    byte[] mac_k = Base64.decode(masterkeyJson.getJSONObject("mac").getString("k"));
+                    byte[] mac_k = Base64.decode(masterkey.mac().k());
                     if (mac_k.length != 16) {
                         throw new IllegalStateException("mac_k is not 16 bytes");
                     }
@@ -167,16 +168,16 @@ public class Repository {
         return decrypted;
     }
 
-    public JSONObject readFile(Path file) throws IOException, NoSuchPaddingException, NoSuchAlgorithmException, InvalidAlgorithmParameterException, InvalidKeyException, IllegalBlockSizeException, BadPaddingException {
+    public <T> T readFile(Path file, Class<T> clazz) throws IOException, NoSuchPaddingException, NoSuchAlgorithmException, InvalidAlgorithmParameterException, InvalidKeyException, IllegalBlockSizeException, BadPaddingException {
         byte[] encryptedData = Files.readAllBytes(path.resolve(file));
         byte[] decrypted = decryptBytes(encryptedData, false);
-        JSONObject json;
+        T json;
         if (decrypted[0] == '{' || decrypted[0] == '[') {
-            json = new JSONObject(new String(decrypted, StandardCharsets.UTF_8));
+            json = MAPPER.readValue(decrypted, clazz);
         } else {
             ZstdCompressorInputStream decompressedStream = new ZstdCompressorInputStream(new ByteArrayInputStream(decrypted, 1, decrypted.length - 1));
             byte[] decompressed = decompressedStream.readAllBytes();
-            json = new JSONObject(new String(decompressed, StandardCharsets.UTF_8));
+            json = MAPPER.readValue(decompressed, clazz);
         }
 
         return json;
@@ -184,24 +185,10 @@ public class Repository {
 
     public String getId() {
         try {
-            JSONObject config = readFile(Path.of("config"));
-            return config.getString("id");
+            Config config = readFile(Path.of("config"), Config.class);
+            return config.id();
         } catch (Exception e) {
             throw new RuntimeException(e);
-        }
-    }
-
-    public List<JSONObject> listSnapshots() throws IOException {
-        try (Stream<Path> snapshotStream = Files.list(path.resolve("snapshots"))) {
-            return snapshotStream.map(file -> {
-                try {
-                    JSONObject jsonObject = readFile(path.relativize(file));
-                    jsonObject.put("id", path.getFileName().toString());
-                    return jsonObject;
-                } catch (Exception e) {
-                    throw new RuntimeException(e);
-                }
-            }).collect(Collectors.toList());
         }
     }
 
@@ -209,12 +196,11 @@ public class Repository {
         return path;
     }
 
-    public List<SnapshotWithId> listSnapshots2() throws IOException {
+    public List<SnapshotWithId> listSnapshots() throws IOException {
         try (Stream<Path> snapshotStream = Files.list(path.resolve("snapshots"))) {
             return snapshotStream.map(file -> {
                 try {
-                    String data = readFile(path.relativize(file)).toString();
-                    Snapshot snapshot = MAPPER.readValue(data, Snapshot.class);
+                    Snapshot snapshot = readFile(path.relativize(file), Snapshot.class);
                     return new SnapshotWithId(file.getFileName().toString(), snapshot);
                 } catch (Exception e) {
                     throw new RuntimeException(e);
@@ -235,8 +221,7 @@ public class Repository {
         try (Stream<Path> indexStream = Files.list(path.resolve("index"))) {
             indexStream.map(file -> {
                 try {
-                    String indexData = readFile(path.relativize(file)).toString();
-                    Index index = MAPPER.readValue(indexData, Index.class);
+                    Index index = readFile(path.relativize(file), Index.class);
                     LOGGER.fine(" index " + file.getFileName().toString() + " loaded");
                     return index;
                 } catch (Exception e) {

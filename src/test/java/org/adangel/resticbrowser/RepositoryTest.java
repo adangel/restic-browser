@@ -10,10 +10,10 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.logging.LogManager;
 
+import org.adangel.resticbrowser.models.Index;
 import org.adangel.resticbrowser.models.Snapshot;
 import org.adangel.resticbrowser.models.SnapshotWithId;
 import org.adangel.resticbrowser.models.Tree;
-import org.json.JSONObject;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
@@ -30,22 +30,18 @@ class RepositoryTest {
     }
 
     @Test
-    void listSnapshots() throws Exception {
+    void readIndex() throws Exception {
         Repository repository = new Repository(Path.of("src/test/resources/repos/repo1"), "test");
-        List<JSONObject> snapshots = repository.listSnapshots();
-        assertEquals(1, snapshots.size());
-        assertEquals("2023-10-29T11:55:03.245143527+01:00", snapshots.get(0).getString("time"));
-        assertEquals("f21b8d90630e094791e9222661d7e53674467e36afba0a4c12b276f8c22c56ff", snapshots.get(0).getString("tree"));
-
-        JSONObject index = repository.readFile(Path.of("index/cccab80cdb489d6d416e283dd9019d06086c3a82b63fc45714e88dea9073f4a0"));
-        System.out.println("index.toString(2) = " + index.toString(2));
+        Index index = repository.readFile(Path.of("index/cccab80cdb489d6d416e283dd9019d06086c3a82b63fc45714e88dea9073f4a0"), Index.class);
+        assertEquals(2, index.packs().size());
     }
 
     @Test
-    void listSnapshots2() throws Exception {
+    void listSnapshots() throws Exception {
         Repository repository = new Repository(Path.of("src/test/resources/repos/repo1"), "test");
-        List<SnapshotWithId> snapshots = repository.listSnapshots2();
+        List<SnapshotWithId> snapshots = repository.listSnapshots();
         assertEquals(1, snapshots.size());
+        assertEquals("2023-10-29T10:55:03.245143527Z", snapshots.get(0).snapshot().time().toString());
         assertEquals("cc5dc9a1e093d1670edd2bd2385b1313f867d98a2e175285ecc1c303c3b0525d", snapshots.getFirst().id());
         assertEquals("adangel", snapshots.getFirst().snapshot().hostname());
     }
@@ -65,7 +61,7 @@ class RepositoryTest {
     @Test
     void readTree() throws Exception {
         Repository repository = new Repository(Path.of("src/test/resources/repos/repo1"), "test");
-        Snapshot snapshot = repository.listSnapshots2().getFirst().snapshot();
+        Snapshot snapshot = repository.listSnapshots().getFirst().snapshot();
         Tree tree = repository.readTree(snapshot.tree());
         assertEquals(1, tree.nodes().size());
         assertEquals("test.txt", tree.nodes().getFirst().name());

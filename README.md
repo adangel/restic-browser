@@ -12,7 +12,6 @@ Java-based implementation of a browser for restic repositories.
 
 ## TODOs
 
-* remove json lib and only use jackson databinding
 * modularize (module-info.java)
 * create jimage/jpackage versions
 * finish implementation:
@@ -24,6 +23,7 @@ Java-based implementation of a browser for restic repositories.
   * cleanup
   * error handling
 * simple GUI for starting either webserver or mount
+* simple CLI for starting either webserver or mount
 * add symlinks for latest, shorten sha256 ids/filenames
 * testing with real world repository
 

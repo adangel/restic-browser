@@ -8,14 +8,12 @@ import java.nio.channels.SeekableByteChannel;
 import java.nio.file.DirectoryStream;
 import java.nio.file.FileStore;
 import java.nio.file.FileSystem;
-import java.nio.file.Files;
 import java.nio.file.OpenOption;
 import java.nio.file.Path;
 import java.nio.file.PathMatcher;
 import java.nio.file.WatchService;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.nio.file.attribute.FileAttribute;
-import java.nio.file.attribute.FileTime;
 import java.nio.file.attribute.UserPrincipalLookupService;
 import java.nio.file.spi.FileSystemProvider;
 import java.security.InvalidAlgorithmParameterException;
@@ -25,9 +23,7 @@ import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 import javax.crypto.BadPaddingException;
 import javax.crypto.IllegalBlockSizeException;
@@ -140,7 +136,7 @@ class ResticFileSystem extends FileSystem {
             paths.add(new ResticPath(this, "/hosts"));
         } else if (segments[0].equals("snapshots")) {
             if (segments.length == 1) {
-                repository.listSnapshots2().forEach(snapshotWithId -> {
+                repository.listSnapshots().forEach(snapshotWithId -> {
                     paths.add(new ResticPath(this, path + "/" + snapshotWithId.id()));
                 });
             } else if (segments.length == 2) {
@@ -166,10 +162,10 @@ class ResticFileSystem extends FileSystem {
             }
         } else if (segments[0].equals("hosts")) {
             if (segments.length == 1) {
-                repository.listSnapshots2().stream().map(snapshotWithId -> snapshotWithId.snapshot().hostname())
+                repository.listSnapshots().stream().map(snapshotWithId -> snapshotWithId.snapshot().hostname())
                         .forEach(h -> paths.add(getPath("hosts", h).toAbsolutePath()));
             } else if (segments.length == 2) {
-                repository.listSnapshots2().stream().filter(s -> s.snapshot().hostname().equals(segments[1]))
+                repository.listSnapshots().stream().filter(s -> s.snapshot().hostname().equals(segments[1]))
                         .map(s -> s.snapshot().time().toString())
                         .forEach(tss -> paths.add(getPath("hosts", segments[1], tss).toAbsolutePath()));
             } else if (segments.length == 3) {
@@ -275,7 +271,7 @@ class ResticFileSystem extends FileSystem {
 
     private SnapshotWithId findSnapshotByHostAndTime(String hostname, String timestamp) {
         try {
-            return repository.listSnapshots2().stream().filter(s -> s.snapshot().hostname().equals(hostname) && s.snapshot().time().toString().equals(timestamp)).findFirst().get();
+            return repository.listSnapshots().stream().filter(s -> s.snapshot().hostname().equals(hostname) && s.snapshot().time().toString().equals(timestamp)).findFirst().get();
         } catch (IOException e) {
             throw new RuntimeException(e);
         }
@@ -283,7 +279,7 @@ class ResticFileSystem extends FileSystem {
 
     private SnapshotWithId findSnapshotById(String snapshotId) {
         try {
-            return repository.listSnapshots2().stream().filter(s -> s.id().equals(snapshotId)).findFirst().get();
+            return repository.listSnapshots().stream().filter(s -> s.id().equals(snapshotId)).findFirst().get();
         } catch (IOException e) {
             throw new RuntimeException(e);
         }
