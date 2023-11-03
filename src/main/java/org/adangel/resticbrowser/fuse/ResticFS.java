@@ -6,7 +6,9 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.attribute.BasicFileAttributes;
+import java.nio.file.attribute.FileTime;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Stream;
 
 import org.adangel.resticbrowser.filesystem.ResticFileSystemProvider;
@@ -43,6 +45,12 @@ public class ResticFS extends FuseStubFS {
         return 0;
     }
 
+    private long calcNanoSecondsPart(FileTime fileTime) {
+        long nanosStartSecond = TimeUnit.NANOSECONDS.convert(fileTime.to(TimeUnit.SECONDS), TimeUnit.SECONDS);
+        long nanos = fileTime.to(TimeUnit.NANOSECONDS);
+        return nanos - nanosStartSecond;
+    }
+
     @Override
     public int getattr(String path, FileStat stat) {
         int res = 0;
@@ -50,6 +58,12 @@ public class ResticFS extends FuseStubFS {
         try {
             if (Files.exists(resticPath)) {
                 BasicFileAttributes attributes = Files.readAttributes(resticPath, BasicFileAttributes.class);
+                stat.st_ctim.tv_sec.set(attributes.creationTime().to(TimeUnit.SECONDS));
+                stat.st_ctim.tv_nsec.set(calcNanoSecondsPart(attributes.creationTime()));
+                stat.st_mtim.tv_sec.set(attributes.lastModifiedTime().to(TimeUnit.SECONDS));
+                stat.st_mtim.tv_nsec.set(calcNanoSecondsPart(attributes.lastModifiedTime()));
+                stat.st_atim.tv_sec.set(attributes.lastAccessTime().to(TimeUnit.SECONDS));
+                stat.st_atim.tv_nsec.set(calcNanoSecondsPart(attributes.lastAccessTime()));
                 if (attributes.isDirectory()) {
                     stat.st_mode.set(FileStat.S_IFDIR | 0555);
                     stat.st_nlink.set(2);
@@ -57,6 +71,9 @@ public class ResticFS extends FuseStubFS {
                     stat.st_mode.set(FileStat.S_IFREG | 0444);
                     stat.st_nlink.set(1);
                     stat.st_size.set(attributes.size());
+                } else if (attributes.isSymbolicLink()) {
+                    stat.st_mode.set(FileStat.S_IFLNK | 0444);
+                    stat.st_nlink.set(1);
                 } else {
                     res = -ErrorCodes.ENOENT();
                 }
