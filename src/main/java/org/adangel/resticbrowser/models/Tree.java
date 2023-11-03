@@ -1,5 +1,6 @@
 package org.adangel.resticbrowser.models;
 
+import java.math.BigInteger;
 import java.time.OffsetDateTime;
 import java.util.List;
 
@@ -24,7 +25,7 @@ public record Tree(List<Node> nodes) {
                 int gid,
                 String user,
                 String group,
-                long inode,
+                BigInteger inode,
                 long device_id,
                 long size,
                 int links,

@@ -7,5 +7,6 @@ public record Snapshot(OffsetDateTime time, String hostname, List<String> tags, 
                        String tree,
                        String username, int uid, int gid, String program_version,
                        List<String> excludes,
-                       String original) { }
+                       String original,
+                       String parent) { }
 
