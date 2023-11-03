@@ -6,6 +6,7 @@ import java.util.List;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 
+// https://github.com/restic/restic/blob/master/internal/restic/tree.go
 public record Tree(List<Node> nodes) {
     public enum NodeType {
         @JsonProperty("dir")
@@ -15,6 +16,8 @@ public record Tree(List<Node> nodes) {
         @JsonProperty("symlink")
         SYMLINK
     }
+
+    // https://github.com/restic/restic/blob/master/internal/restic/node.go
     public record Node(String name,
                 NodeType type,
                 long mode,

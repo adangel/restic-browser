@@ -21,9 +21,11 @@ Java-based implementation of a browser for restic repositories.
   * respect locks in restic repo
   * cleanup
   * error handling
+  * support all json fields (see package org.adangel.resticbrowser.model) including correct types (e.g. uint64)
 * simple GUI for starting either webserver or mount
 * simple CLI for starting either webserver or mount
 * add symlinks for latest, shorten sha256 ids/filenames
+  * layout similar to restic: https://github.com/restic/restic/blob/master/internal/fuse/root.go#L62-L65
 * testing with real world repository
 
 ## Implementation details
