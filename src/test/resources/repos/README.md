@@ -55,3 +55,29 @@ snapshot 2a9e949d of [/home/johndoe] filtered by [] at 2023-11-03 07:55:16.98798
 /home/johndoe/subdir2/f/file2.txt
 /home/johndoe/subdir2/f/file3.txt
 ```
+
+## repo3
+* created restic repository 958c01b38c at repo3
+* format: v2
+* Password: `test`
+* Snapshots:
+```
+$ restic --repo repo3 snapshots
+repository 958c01b3 opened (version 2, compression level auto)
+ID        Time                 Host        Tags        Paths
+------------------------------------------------------------
+f9bd1daf  2023-11-03 18:57:18  adangel                 /data
+------------------------------------------------------------
+1 snapshots
+```
+* Content of snapshot f9bd1daf
+```
+$ restic --repo repo3 ls f9bd1daf
+snapshot f9bd1daf of [/data] filtered by [] at 2023-11-03 18:57:18.213904491 +0100 CET):
+/data
+/data/dir
+/data/dir/file.txt
+/data/regular.txt
+/data/symlink.txt
+/data/symlink2.txt
+```

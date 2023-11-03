@@ -204,11 +204,15 @@ class ResticPath implements Path {
         return String.join("/", pathComponents);
     }
 
-    <A extends BasicFileAttributes> A readAttributes() throws IOException {
-        return fileSystem.readAttributes(this.toString());
+    <A extends BasicFileAttributes> A readAttributes(LinkOption... options) throws IOException {
+        return fileSystem.readAttributes(this.toString(), options);
     }
 
     SeekableByteChannel newByteChannel(Set<? extends OpenOption> options, FileAttribute<?>... attrs) {
         return fileSystem.newByteChannel(this.toString(), options, attrs);
+    }
+
+    public Path readSymbolicLink() {
+        return fileSystem.readSymbolicLink(this.toString());
     }
 }

@@ -9,6 +9,7 @@ import java.nio.channels.SeekableByteChannel;
 import java.nio.file.DirectoryStream;
 import java.nio.file.FileStore;
 import java.nio.file.FileSystem;
+import java.nio.file.LinkOption;
 import java.nio.file.OpenOption;
 import java.nio.file.Path;
 import java.nio.file.PathMatcher;
@@ -215,7 +216,17 @@ class ResticFileSystem extends FileSystem {
         };
     }
 
-    <A extends BasicFileAttributes> A readAttributes(String path) throws IOException {
+    private static boolean shouldFollowSymLinks(LinkOption... options) {
+        boolean follow = true;
+        for (LinkOption option : options) {
+            if (option == LinkOption.NOFOLLOW_LINKS) {
+                follow = false;
+            }
+        }
+        return follow;
+    }
+
+    <A extends BasicFileAttributes> A readAttributes(String path, LinkOption... options) throws IOException {
         if (!path.startsWith("/")) {
             throw new IllegalArgumentException("path must be absolute: " + path);
         }
@@ -227,6 +238,7 @@ class ResticFileSystem extends FileSystem {
             return ResticFileAttributes.forRoot(repository.getPath());
         }
 
+        int firstIndex = -1;
         if (segments[0].equals("snapshots")) {
             if (segments.length == 1) {
                 return ResticFileAttributes.forRoot(repository.getPath());
@@ -235,27 +247,7 @@ class ResticFileSystem extends FileSystem {
                 if (segments.length == 2) {
                     return ResticFileAttributes.forSnapshot(snapshotWithId);
                 }
-
-                String[] parentSubPath = new String[segments.length - 3];
-                System.arraycopy(segments, 2, parentSubPath, 0, parentSubPath.length);
-                String parentSubPathJoined = String.join("/", parentSubPath);
-                try {
-                    List<Tree.Node> parentFiles = repository.listFiles(snapshotWithId.id(), "/" + parentSubPathJoined);
-                    Tree.Node childNode = parentFiles.stream().filter(node -> node.name().equals(segments[segments.length - 1])).findFirst().get();
-                    return ResticFileAttributes.fromNode(childNode);
-                } catch (InvalidAlgorithmParameterException e) {
-                    throw new RuntimeException(e);
-                } catch (NoSuchPaddingException e) {
-                    throw new RuntimeException(e);
-                } catch (IllegalBlockSizeException e) {
-                    throw new RuntimeException(e);
-                } catch (NoSuchAlgorithmException e) {
-                    throw new RuntimeException(e);
-                } catch (BadPaddingException e) {
-                    throw new RuntimeException(e);
-                } catch (InvalidKeyException e) {
-                    throw new RuntimeException(e);
-                }
+                firstIndex = 2;
             }
         } else if (segments[0].equals("hosts")) {
             if (segments.length == 1) {
@@ -267,30 +259,46 @@ class ResticFileSystem extends FileSystem {
                 if (segments.length == 3) {
                     return ResticFileAttributes.forSnapshot(snapshotWithId);
                 }
-                String[] parentSubPath = new String[segments.length - 4];
-                System.arraycopy(segments, 3, parentSubPath, 0, parentSubPath.length);
-                String parentSubPathJoined = String.join("/", parentSubPath);
-                try {
-                    List<Tree.Node> parentFiles = repository.listFiles(snapshotWithId.id(), "/" + parentSubPathJoined);
-                    Tree.Node childNode = parentFiles.stream().filter(node -> node.name().equals(segments[segments.length - 1])).findFirst().get();
-                    return ResticFileAttributes.fromNode(childNode);
-                } catch (InvalidAlgorithmParameterException e) {
-                    throw new RuntimeException(e);
-                } catch (NoSuchPaddingException e) {
-                    throw new RuntimeException(e);
-                } catch (IllegalBlockSizeException e) {
-                    throw new RuntimeException(e);
-                } catch (NoSuchAlgorithmException e) {
-                    throw new RuntimeException(e);
-                } catch (BadPaddingException e) {
-                    throw new RuntimeException(e);
-                } catch (InvalidKeyException e) {
-                    throw new RuntimeException(e);
-                }
+                firstIndex = 3;
             }
         }
 
-        throw new FileNotFoundException(path);
+        if (firstIndex == -1) {
+            throw new IllegalStateException();
+        }
+
+        String[] parentSubPath = new String[segments.length - firstIndex - 1];
+        System.arraycopy(segments, firstIndex, parentSubPath, 0, parentSubPath.length);
+        String parentSubPathJoined = String.join("/", parentSubPath);
+        try {
+            List<Tree.Node> parentFiles = repository.listFiles(snapshotWithId.id(), "/" + parentSubPathJoined);
+            Tree.Node childNode = parentFiles.stream().filter(node -> node.name().equals(segments[segments.length - 1])).findFirst().get();
+            if (childNode.type() == Tree.NodeType.SYMLINK && shouldFollowSymLinks(options)) {
+                String[] pathToSnapshot = new String[firstIndex];
+                System.arraycopy(segments, 0, pathToSnapshot, 0, pathToSnapshot.length);
+                String pathToSnapshotJoined = String.join("/", pathToSnapshot);
+
+                String linktarget = childNode.linktarget();
+                if (linktarget.charAt(0) == '/') {
+                    return readAttributes("/" + pathToSnapshotJoined + linktarget);
+                }
+                return readAttributes("/" + pathToSnapshotJoined + "/" + parentSubPathJoined + "/" + linktarget);
+            } else {
+                return ResticFileAttributes.fromNode(childNode);
+            }
+        } catch (InvalidAlgorithmParameterException e) {
+            throw new RuntimeException(e);
+        } catch (NoSuchPaddingException e) {
+            throw new RuntimeException(e);
+        } catch (IllegalBlockSizeException e) {
+            throw new RuntimeException(e);
+        } catch (NoSuchAlgorithmException e) {
+            throw new RuntimeException(e);
+        } catch (BadPaddingException e) {
+            throw new RuntimeException(e);
+        } catch (InvalidKeyException e) {
+            throw new RuntimeException(e);
+        }
     }
 
     private Tree.Node findNodeInTree(Tree tree, String name) {
@@ -408,7 +416,71 @@ class ResticFileSystem extends FileSystem {
         try {
             List<Tree.Node> files = repository.listFiles(snapshotById.id(), "/" + parentSubPathJoined);
             Tree.Node node = files.stream().filter(n -> n.name().equals(subPath[subPath.length - 1])).findFirst().get();
+            if (node.type() == Tree.NodeType.SYMLINK) {
+                String[] pathToSnapshot = new String[firstIndex];
+                System.arraycopy(segments, 0, pathToSnapshot, 0, pathToSnapshot.length);
+                String pathToSnapshotJoined = String.join("/", pathToSnapshot);
+
+                String linktarget = node.linktarget();
+                if (linktarget.charAt(0) == '/') {
+                    return newByteChannel("/" + pathToSnapshotJoined + linktarget, options, attrs);
+                }
+                return newByteChannel("/" + pathToSnapshotJoined + "/" + parentSubPathJoined + "/" + linktarget, options, attrs);
+            }
             return createFromNode(node);
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        } catch (InvalidAlgorithmParameterException e) {
+            throw new RuntimeException(e);
+        } catch (NoSuchPaddingException e) {
+            throw new RuntimeException(e);
+        } catch (IllegalBlockSizeException e) {
+            throw new RuntimeException(e);
+        } catch (NoSuchAlgorithmException e) {
+            throw new RuntimeException(e);
+        } catch (BadPaddingException e) {
+            throw new RuntimeException(e);
+        } catch (InvalidKeyException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    Path readSymbolicLink(String path) {
+        if (!path.startsWith("/")) {
+            throw new IllegalArgumentException();
+        }
+        String[] segments = path.substring(1).split("/");
+        SnapshotWithId snapshotById = null;
+        int firstIndex = -1;
+        if (segments[0].equals("snapshots")) {
+            snapshotById = findSnapshotById(segments[1]);
+            firstIndex = 2;
+        } else if (segments[0].equals("hosts")) {
+            snapshotById = findSnapshotByHostAndTime(segments[1], segments[2]);
+            firstIndex = 3;
+        } else {
+            throw new IllegalArgumentException("Unknown path: " + path);
+        }
+        String[] subPath = new String[segments.length - firstIndex];
+        System.arraycopy(segments, firstIndex, subPath, 0, subPath.length);
+        String subPathJoined = String.join("/", subPath);
+        if (subPathJoined.isEmpty()) {
+            throw new IllegalStateException(path + " is not a symlink");
+        }
+        String[] parentSubPath = new String[subPath.length - 1];
+        System.arraycopy(subPath, 0, parentSubPath, 0, parentSubPath.length);
+        String parentSubPathJoined = String.join("/", parentSubPath);
+        try {
+            List<Tree.Node> files = repository.listFiles(snapshotById.id(), "/" + parentSubPathJoined);
+            Tree.Node node = files.stream().filter(n -> n.name().equals(subPath[subPath.length - 1])).findFirst().get();
+            String linktarget = node.linktarget();
+            if (linktarget.charAt(0) == '/') {
+                String[] pathToSnapshotRoot = new String[firstIndex];
+                System.arraycopy(segments, 0, pathToSnapshotRoot, 0, firstIndex);
+                return getPath("/", String.join("/", pathToSnapshotRoot), linktarget.substring(1));
+            } else {
+                return getPath(node.linktarget());
+            }
         } catch (IOException e) {
             throw new RuntimeException(e);
         } catch (InvalidAlgorithmParameterException e) {

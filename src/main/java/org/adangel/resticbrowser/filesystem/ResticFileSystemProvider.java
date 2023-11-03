@@ -153,7 +153,7 @@ public class ResticFileSystemProvider extends FileSystemProvider {
     @Override
     public <A extends BasicFileAttributes> A readAttributes(Path path, Class<A> type, LinkOption... options) throws IOException {
         ResticPath resticPath = (ResticPath) path;
-        return resticPath.readAttributes();
+        return resticPath.readAttributes(options);
     }
 
     @Override
@@ -164,5 +164,11 @@ public class ResticFileSystemProvider extends FileSystemProvider {
     @Override
     public void setAttribute(Path path, String attribute, Object value, LinkOption... options) throws IOException {
         throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public Path readSymbolicLink(Path link) throws IOException {
+        ResticPath resticPath = (ResticPath) link;
+        return resticPath.readSymbolicLink();
     }
 }

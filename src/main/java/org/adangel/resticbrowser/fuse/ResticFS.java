@@ -1,14 +1,18 @@
 package org.adangel.resticbrowser.fuse;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.FileSystem;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.nio.file.attribute.FileTime;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 import java.util.stream.Stream;
 
 import org.adangel.resticbrowser.filesystem.ResticFileSystemProvider;
@@ -22,6 +26,7 @@ import ru.serce.jnrfuse.struct.FileStat;
 import ru.serce.jnrfuse.struct.FuseFileInfo;
 
 public class ResticFS extends FuseStubFS {
+    private static final Logger LOGGER = Logger.getLogger(ResticFS.class.getName());
     private final FileSystem fileSystem;
 
     public ResticFS(Path repositoryPath, Map<String, ?> env) throws IOException {
@@ -40,6 +45,7 @@ public class ResticFS extends FuseStubFS {
                 filter.apply(buf, resticPath.relativize(p).toString(), null, 0);
             });
         } catch (IOException e) {
+            LOGGER.log(Level.SEVERE, "Error reading directory " + path, e);
             return -ErrorCodes.EIO();
         }
         return 0;
@@ -57,7 +63,7 @@ public class ResticFS extends FuseStubFS {
         Path resticPath = fileSystem.getPath(path);
         try {
             if (Files.exists(resticPath)) {
-                BasicFileAttributes attributes = Files.readAttributes(resticPath, BasicFileAttributes.class);
+                BasicFileAttributes attributes = Files.readAttributes(resticPath, BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
                 stat.st_ctim.tv_sec.set(attributes.creationTime().to(TimeUnit.SECONDS));
                 stat.st_ctim.tv_nsec.set(calcNanoSecondsPart(attributes.creationTime()));
                 stat.st_mtim.tv_sec.set(attributes.lastModifiedTime().to(TimeUnit.SECONDS));
@@ -72,8 +78,10 @@ public class ResticFS extends FuseStubFS {
                     stat.st_nlink.set(1);
                     stat.st_size.set(attributes.size());
                 } else if (attributes.isSymbolicLink()) {
+                    Path symlinkTarget = Files.readSymbolicLink(resticPath);
                     stat.st_mode.set(FileStat.S_IFLNK | 0444);
                     stat.st_nlink.set(1);
+                    stat.st_size.set(symlinkTarget.toString().length());
                 } else {
                     res = -ErrorCodes.ENOENT();
                 }
@@ -81,6 +89,23 @@ public class ResticFS extends FuseStubFS {
                 res = -ErrorCodes.ENOENT();
             }
         } catch (IOException e) {
+            LOGGER.log(Level.SEVERE, "Error reading attributes for " + path, e);
+            res = -ErrorCodes.EIO();
+        }
+        return res;
+    }
+
+    @Override
+    public int readlink(String path, Pointer buf, long size) {
+        int res = 0;
+        Path resticPath = fileSystem.getPath(path);
+        try {
+            Path linkTarget = Files.readSymbolicLink(resticPath);
+            String target = linkTarget.toString();
+            target = target.substring(0, Math.min(target.length(), (int) size));
+            buf.putString(0, target, (int) size, StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            LOGGER.log(Level.SEVERE, "Error reading symlink " + path, e);
             res = -ErrorCodes.EIO();
         }
         return res;
@@ -115,6 +140,7 @@ public class ResticFS extends FuseStubFS {
             }
             return (int) size;
         } catch (IOException e) {
+            LOGGER.log(Level.SEVERE, "Error while reading file " + path, e);
             return -ErrorCodes.EIO();
         }
     }
