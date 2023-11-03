@@ -44,13 +44,13 @@ public class ResticFileSystemProvider extends FileSystemProvider {
     }
 
     @Override
-    public FileSystem newFileSystem(URI uri, Map<String, ?> env) throws IOException {
+    public ResticFileSystem newFileSystem(URI uri, Map<String, ?> env) throws IOException {
         Path resticPath = getResticPathFromUri(uri);
         return newFileSystem(resticPath, env);
     }
 
     @Override
-    public FileSystem newFileSystem(Path resticPath, Map<String, ?> env) throws IOException {
+    public ResticFileSystem newFileSystem(Path resticPath, Map<String, ?> env) throws IOException {
         synchronized (filesystems) {
             if (filesystems.containsKey(resticPath)) {
                 throw new FileSystemAlreadyExistsException();

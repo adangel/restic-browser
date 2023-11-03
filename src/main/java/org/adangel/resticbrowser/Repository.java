@@ -213,6 +213,47 @@ public class Repository {
         return MAPPER.readValue(readContent(tree), Tree.class);
     }
 
+    public List<String> listFiles(String snapshotId) throws InvalidAlgorithmParameterException, NoSuchPaddingException, IllegalBlockSizeException, IOException, NoSuchAlgorithmException, BadPaddingException, InvalidKeyException {
+        Snapshot snapshot = readFile(Path.of("snapshots", snapshotId), Snapshot.class);
+        List<String> files = new ArrayList<>();
+
+        Tree tree = readTree(snapshot.tree());
+        listFilesInTree(tree, files, Path.of("/"));
+
+        return files;
+    }
+
+    private void listFilesInTree(Tree tree, List<String> files, Path current) throws InvalidAlgorithmParameterException, NoSuchPaddingException, IllegalBlockSizeException, IOException, NoSuchAlgorithmException, BadPaddingException, InvalidKeyException {
+        for (Tree.Node node : tree.nodes()) {
+            Path subPath = current.resolve(node.name());
+            files.add(subPath.toString());
+            if (node.type() == Tree.NodeType.DIR) {
+                Tree next = readTree(node.subtree());
+                listFilesInTree(next, files, subPath);
+            }
+        }
+    }
+
+    public List<Tree.Node> listFiles(String snapshotId, String path) throws InvalidAlgorithmParameterException, NoSuchPaddingException, IllegalBlockSizeException, IOException, NoSuchAlgorithmException, BadPaddingException, InvalidKeyException {
+        if (path.charAt(0) != '/') {
+            throw new IllegalArgumentException("path must be absolute");
+        }
+        Snapshot snapshot = readFile(Path.of("snapshots", snapshotId), Snapshot.class);
+        Tree tree = readTree(snapshot.tree());
+        String[] segments = path.substring(1).split("/");
+        for (int i = 0; i < segments.length; i++) {
+            String name = segments[i];
+            if (!name.isEmpty()) {
+                Tree.Node dir = tree.nodes().stream().filter(node -> node.name().equals(name)).findFirst().get();
+                if (dir.type() != Tree.NodeType.DIR) {
+                    throw new IllegalArgumentException(name + " is not a directory");
+                }
+                tree = readTree(dir.subtree());
+            }
+        }
+        return tree.nodes();
+    }
+
     record FoundBlob(Index.Pack pack, Index.Pack.Blob blob) {}
 
     private FoundBlob findBlob(String sha256) throws IOException {

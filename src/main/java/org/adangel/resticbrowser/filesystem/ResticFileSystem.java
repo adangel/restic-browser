@@ -1,5 +1,6 @@
 package org.adangel.resticbrowser.filesystem;
 
+import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.net.URI;
 import java.net.URISyntaxException;
@@ -139,11 +140,18 @@ class ResticFileSystem extends FileSystem {
                 repository.listSnapshots().forEach(snapshotWithId -> {
                     paths.add(new ResticPath(this, path + "/" + snapshotWithId.id()));
                 });
-            } else if (segments.length == 2) {
+            } else {
                 SnapshotWithId snapshotById = findSnapshotById(segments[1]);
+                String[] subPath = new String[segments.length - 2];
+                System.arraycopy(segments, 2, subPath, 0, subPath.length);
                 try {
-                    Tree tree = repository.readTree(snapshotById.snapshot().tree());
-                    tree.nodes().forEach(node -> paths.add(getPath("snapshots", snapshotById.id(), node.name()).toAbsolutePath()));
+                    String subPathJoined = String.join("/", subPath);
+                    List<Tree.Node> files = repository.listFiles(snapshotById.id(), "/" + subPathJoined);
+                    if (subPath.length > 0) {
+                        files.forEach(file -> paths.add(getPath("snapshots", snapshotById.id(), subPathJoined, file.name()).toAbsolutePath()));
+                    } else {
+                        files.forEach(file -> paths.add(getPath("snapshots", snapshotById.id(), file.name()).toAbsolutePath()));
+                    }
                 } catch (InvalidAlgorithmParameterException e) {
                     throw new RuntimeException(e);
                 } catch (NoSuchPaddingException e) {
@@ -157,8 +165,6 @@ class ResticFileSystem extends FileSystem {
                 } catch (InvalidKeyException e) {
                     throw new RuntimeException(e);
                 }
-            } else {
-                // TODO
             }
         } else if (segments[0].equals("hosts")) {
             if (segments.length == 1) {
@@ -168,11 +174,18 @@ class ResticFileSystem extends FileSystem {
                 repository.listSnapshots().stream().filter(s -> s.snapshot().hostname().equals(segments[1]))
                         .map(s -> s.snapshot().time().toString())
                         .forEach(tss -> paths.add(getPath("hosts", segments[1], tss).toAbsolutePath()));
-            } else if (segments.length == 3) {
-                SnapshotWithId snapshotByHostAndTime = findSnapshotByHostAndTime(segments[1], segments[2]);
+            } else {
+                SnapshotWithId snapshotWithId = findSnapshotByHostAndTime(segments[1], segments[2]);
+                String[] subPath = new String[segments.length - 3];
+                System.arraycopy(segments, 3, subPath, 0, subPath.length);
                 try {
-                    Tree tree = repository.readTree(snapshotByHostAndTime.snapshot().tree());
-                    tree.nodes().forEach(n -> paths.add(getPath("hosts", segments[1], segments[2], n.name()).toAbsolutePath()));
+                    String subPathJoined = String.join("/", subPath);
+                    List<Tree.Node> files = repository.listFiles(snapshotWithId.id(), "/" + subPathJoined);
+                    if (subPath.length > 0) {
+                        files.forEach(file -> paths.add(getPath("hosts", segments[1], segments[2], subPathJoined, file.name()).toAbsolutePath()));
+                    } else {
+                        files.forEach(file -> paths.add(getPath("hosts", segments[1], segments[2], file.name()).toAbsolutePath()));
+                    }
                 } catch (InvalidAlgorithmParameterException e) {
                     throw new RuntimeException(e);
                 } catch (NoSuchPaddingException e) {
@@ -186,8 +199,6 @@ class ResticFileSystem extends FileSystem {
                 } catch (InvalidKeyException e) {
                     throw new RuntimeException(e);
                 }
-            } else {
-                // TODO
             }
         }
         return new DirectoryStream<Path>() {
@@ -205,7 +216,7 @@ class ResticFileSystem extends FileSystem {
 
     <A extends BasicFileAttributes> A readAttributes(String path) throws IOException {
         if (!path.startsWith("/")) {
-            throw new IllegalArgumentException();
+            throw new IllegalArgumentException("path must be absolute: " + path);
         }
 
         SnapshotWithId snapshotWithId = null;
@@ -215,7 +226,6 @@ class ResticFileSystem extends FileSystem {
             return ResticFileAttributes.forRoot(repository.getPath());
         }
 
-        int firstIndex = -1;
         if (segments[0].equals("snapshots")) {
             if (segments.length == 1) {
                 return ResticFileAttributes.forRoot(repository.getPath());
@@ -224,7 +234,27 @@ class ResticFileSystem extends FileSystem {
                 if (segments.length == 2) {
                     return ResticFileAttributes.forSnapshot(snapshotWithId);
                 }
-                firstIndex = 2;
+
+                String[] parentSubPath = new String[segments.length - 3];
+                System.arraycopy(segments, 2, parentSubPath, 0, parentSubPath.length);
+                String parentSubPathJoined = String.join("/", parentSubPath);
+                try {
+                    List<Tree.Node> parentFiles = repository.listFiles(snapshotWithId.id(), "/" + parentSubPathJoined);
+                    Tree.Node childNode = parentFiles.stream().filter(node -> node.name().equals(segments[segments.length - 1])).findFirst().get();
+                    return ResticFileAttributes.fromNode(childNode);
+                } catch (InvalidAlgorithmParameterException e) {
+                    throw new RuntimeException(e);
+                } catch (NoSuchPaddingException e) {
+                    throw new RuntimeException(e);
+                } catch (IllegalBlockSizeException e) {
+                    throw new RuntimeException(e);
+                } catch (NoSuchAlgorithmException e) {
+                    throw new RuntimeException(e);
+                } catch (BadPaddingException e) {
+                    throw new RuntimeException(e);
+                } catch (InvalidKeyException e) {
+                    throw new RuntimeException(e);
+                }
             }
         } else if (segments[0].equals("hosts")) {
             if (segments.length == 1) {
@@ -236,33 +266,30 @@ class ResticFileSystem extends FileSystem {
                 if (segments.length == 3) {
                     return ResticFileAttributes.forSnapshot(snapshotWithId);
                 }
-                firstIndex = 3;
+                String[] parentSubPath = new String[segments.length - 4];
+                System.arraycopy(segments, 3, parentSubPath, 0, parentSubPath.length);
+                String parentSubPathJoined = String.join("/", parentSubPath);
+                try {
+                    List<Tree.Node> parentFiles = repository.listFiles(snapshotWithId.id(), "/" + parentSubPathJoined);
+                    Tree.Node childNode = parentFiles.stream().filter(node -> node.name().equals(segments[segments.length - 1])).findFirst().get();
+                    return ResticFileAttributes.fromNode(childNode);
+                } catch (InvalidAlgorithmParameterException e) {
+                    throw new RuntimeException(e);
+                } catch (NoSuchPaddingException e) {
+                    throw new RuntimeException(e);
+                } catch (IllegalBlockSizeException e) {
+                    throw new RuntimeException(e);
+                } catch (NoSuchAlgorithmException e) {
+                    throw new RuntimeException(e);
+                } catch (BadPaddingException e) {
+                    throw new RuntimeException(e);
+                } catch (InvalidKeyException e) {
+                    throw new RuntimeException(e);
+                }
             }
         }
-        if (snapshotWithId == null) {
-            throw new IllegalStateException();
-        }
 
-        try {
-            Tree tree = repository.readTree(snapshotWithId.snapshot().tree());
-            Tree.Node node = findNodeInTree(tree, segments[firstIndex]);
-            return ResticFileAttributes.fromNode(node);
-        } catch (IOException e) {
-            throw new RuntimeException(e);
-        } catch (InvalidAlgorithmParameterException e) {
-            throw new RuntimeException(e);
-        } catch (NoSuchPaddingException e) {
-            throw new RuntimeException(e);
-        } catch (IllegalBlockSizeException e) {
-            throw new RuntimeException(e);
-        } catch (NoSuchAlgorithmException e) {
-            throw new RuntimeException(e);
-        } catch (BadPaddingException e) {
-            throw new RuntimeException(e);
-        } catch (InvalidKeyException e) {
-            throw new RuntimeException(e);
-        }
-
+        throw new FileNotFoundException(path);
     }
 
     private Tree.Node findNodeInTree(Tree tree, String name) {

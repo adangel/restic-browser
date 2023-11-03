@@ -16,7 +16,6 @@ Java-based implementation of a browser for restic repositories.
 * create jimage/jpackage versions
 * finish implementation:
   * caching for index
-  * support traversing deeper nested tree structures
   * support v1 and v2 repo formats and legacy layout
   * don't load the files completely into memory, use streams
   * respect locks in restic repo
