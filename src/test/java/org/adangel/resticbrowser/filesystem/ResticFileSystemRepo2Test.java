@@ -1,5 +1,6 @@
 package org.adangel.resticbrowser.filesystem;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertLinesMatch;
 
 import java.io.IOException;
@@ -43,5 +44,12 @@ class ResticFileSystemRepo2Test {
 
         List<String> expectedFiles = Files.readAllLines(Path.of("src/test/resources/repos/repo2.filelist"));
         assertLinesMatch(expectedFiles, files);
+    }
+
+    @Test
+    void readFile() throws IOException {
+        Path path = fileSystem.getPath("/snapshots/2a9e949d33e1d696070a75e0be69dc6c1e9e89a2dd44d02a7b971a8d849c2f6c/home/johndoe/subdir1/a/file2.txt");
+        String content = Files.readString(path);
+        assertEquals("This is path subdir1/a/file2.txt\n\n", content);
     }
 }

@@ -392,10 +392,21 @@ class ResticFileSystem extends FileSystem {
         } else if (segments[0].equals("hosts")) {
             snapshotById = findSnapshotByHostAndTime(segments[1], segments[2]);
             firstIndex = 3;
+        } else {
+            throw new IllegalArgumentException("Unknown path: " + path);
         }
+        String[] subPath = new String[segments.length - firstIndex];
+        System.arraycopy(segments, firstIndex, subPath, 0, subPath.length);
+        String subPathJoined = String.join("/", subPath);
+        if (subPathJoined.isEmpty()) {
+            throw new IllegalStateException(path + " is not a file");
+        }
+        String[] parentSubPath = new String[subPath.length - 1];
+        System.arraycopy(subPath, 0, parentSubPath, 0, parentSubPath.length);
+        String parentSubPathJoined = String.join("/", parentSubPath);
         try {
-            Tree tree = repository.readTree(snapshotById.snapshot().tree());
-            Tree.Node node = findNodeInTree(tree, segments[firstIndex]);
+            List<Tree.Node> files = repository.listFiles(snapshotById.id(), "/" + parentSubPathJoined);
+            Tree.Node node = files.stream().filter(n -> n.name().equals(subPath[subPath.length - 1])).findFirst().get();
             return createFromNode(node);
         } catch (IOException e) {
             throw new RuntimeException(e);
