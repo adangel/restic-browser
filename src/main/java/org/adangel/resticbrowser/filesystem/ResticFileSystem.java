@@ -169,6 +169,7 @@ class ResticFileSystem extends FileSystem {
         } else if (segments[0].equals("hosts")) {
             if (segments.length == 1) {
                 repository.listSnapshots().stream().map(snapshotWithId -> snapshotWithId.snapshot().hostname())
+                        .distinct()
                         .forEach(h -> paths.add(getPath("hosts", h).toAbsolutePath()));
             } else if (segments.length == 2) {
                 repository.listSnapshots().stream().filter(s -> s.snapshot().hostname().equals(segments[1]))
