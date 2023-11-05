@@ -20,6 +20,12 @@ public class GUI {
             handler.setLevel(Level.FINE);
         }
 
+        try {
+            UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName());
+        } catch (Exception e) {
+            Logger.getLogger(GUI.class.getName()).log(Level.WARNING, "Couldn't set native look and feel", e);
+        }
+
         JFrame mainframe = new JFrame("restic-browser");
         JPanel container = new JPanel();
         BoxLayout layout = new BoxLayout(container, BoxLayout.Y_AXIS);
