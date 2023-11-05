@@ -14,6 +14,10 @@ on:
   pull_request:
     branches: [ "main" ]
 
+permissions:
+  # write permissions needed for advanced-security/maven-dependency-submission-action
+  contents: write
+
 jobs:
   build:
 
