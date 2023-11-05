@@ -24,7 +24,7 @@ public class WebServer {
         Path resticRootPath = fileSystem.getPath("/");
 
         this.port = port;
-        server = SimpleFileServer.createFileServer(new InetSocketAddress(port), resticRootPath, SimpleFileServer.OutputLevel.VERBOSE);
+        server = SimpleFileServer.createFileServer(new InetSocketAddress(port), resticRootPath, SimpleFileServer.OutputLevel.INFO);
     }
 
     public void start() throws IOException {
@@ -33,7 +33,7 @@ public class WebServer {
     }
 
     public void stop() {
-        server.stop(0);
+        server.stop(1);
     }
 
     public static void main(String[] args) throws IOException {

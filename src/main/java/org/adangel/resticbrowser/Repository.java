@@ -11,7 +11,12 @@ import java.security.InvalidKeyException;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.stream.Collectors;
@@ -53,6 +58,7 @@ public class Repository {
     public Repository(Path path, String password) throws IOException {
         this.path = path;
         initMasterKey(password);
+        loadIndexFiles();
     }
 
     private void initMasterKey(String password) throws IOException {
@@ -135,6 +141,70 @@ public class Repository {
         }
     }
 
+    private record IndexEntry(String packId, String type, int offset, int length, int uncompressed_length) {}
+    private Map<String, IndexEntry> indexCache;
+    private void loadIndexFiles() throws IOException {
+        LOGGER.info("Loading indexes...");
+        Map<String, Map<String, IndexEntry>> temporaryIndex = new HashMap<>();
+        Set<String> supersedes = new HashSet<>();
+
+        List<Path> indexFiles;
+        try (Stream<Path> indexStream = Files.list(path.resolve("index"))) {
+            indexFiles = indexStream.toList();
+        }
+
+        long fileNumber = 0;
+        for (Path indexFile : indexFiles) {
+            fileNumber++;
+            String indexName = indexFile.getFileName().toString();
+            Map<String, IndexEntry> currentCache = new HashMap<>();
+            try {
+                Index index = readFile(path.relativize(indexFile), Index.class);
+                LOGGER.fine(String.format(" index %s loaded (%d of %d)", indexName, fileNumber, indexFiles.size()));
+
+                if (index.supersedes() != null && !index.supersedes().isEmpty()) {
+                    LOGGER.fine("Found superseded indexes...");
+                    supersedes.addAll(index.supersedes());
+                }
+
+                for (Index.Pack pack : index.packs()) {
+                    for (Index.Pack.Blob blob : pack.blobs()) {
+                        IndexEntry previousEntry = currentCache.put(blob.id(), new IndexEntry(pack.id(), blob.type(), blob.offset(), blob.length(), blob.uncompressed_length()));
+                        if (previousEntry != null) {
+                            LOGGER.warning("replaced previous index entry " + previousEntry + " for blob " + blob.id());
+                            throw new IllegalStateException();
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+            temporaryIndex.put(indexName, currentCache);
+        }
+
+        LOGGER.info("Found %d superseded indexes".formatted(supersedes.size()));
+        LOGGER.info("temporary index: size=%d".formatted(temporaryIndex.size()));
+        for (String superseded : supersedes) {
+            temporaryIndex.remove(superseded);
+        }
+        LOGGER.info("temporary index: size=%d (after removed old indexes)".formatted(temporaryIndex.size()));
+        indexCache = new HashMap<>();
+        for (Map<String, IndexEntry> entry : temporaryIndex.values()) {
+            indexCache.putAll(entry);
+        }
+
+        LOGGER.info("IndexCache contains %d blobs".formatted(indexCache.size()));
+    }
+
+    private IndexEntry findBlob(String sha256) {
+        if (!indexCache.containsKey(sha256)) {
+            throw new IllegalStateException("Blob with id " + sha256 + " not found in index");
+        }
+        IndexEntry indexEntry = indexCache.get(sha256);
+        LOGGER.fine("Found blob: " + indexEntry);
+        return indexEntry;
+    }
+
     public boolean hasMasterKey() {
         return masterKeySpec != null;
     }
@@ -209,8 +279,20 @@ public class Repository {
         }
     }
 
+    private Map<String, Tree> treeCache = new LinkedHashMap<>() {
+        @Override
+        protected boolean removeEldestEntry(Map.Entry<String, Tree> eldest) {
+            return size() > 50;
+        }
+    };
     public Tree readTree(String tree) throws IOException, InvalidAlgorithmParameterException, NoSuchPaddingException, IllegalBlockSizeException, NoSuchAlgorithmException, BadPaddingException, InvalidKeyException {
-        return MAPPER.readValue(readContent(tree), Tree.class);
+        if (treeCache.containsKey(tree)) {
+            return treeCache.get(tree);
+        }
+        LOGGER.fine("Loading tree " + tree);
+        Tree loadedTree = MAPPER.readValue(readContent(tree), Tree.class);
+        treeCache.put(tree, loadedTree);
+        return loadedTree;
     }
 
     public List<String> listFiles(String snapshotId) throws InvalidAlgorithmParameterException, NoSuchPaddingException, IllegalBlockSizeException, IOException, NoSuchAlgorithmException, BadPaddingException, InvalidKeyException {
@@ -254,62 +336,20 @@ public class Repository {
         return tree.nodes();
     }
 
-    record FoundBlob(Index.Pack pack, Index.Pack.Blob blob) {}
-
-    private FoundBlob findBlob(String sha256) throws IOException {
-        List<Index> indexes = new ArrayList<>();
-        LOGGER.info("Loading indexes...");
-        try (Stream<Path> indexStream = Files.list(path.resolve("index"))) {
-            indexStream.map(file -> {
-                try {
-                    Index index = readFile(path.relativize(file), Index.class);
-                    LOGGER.fine(" index " + file.getFileName().toString() + " loaded");
-                    return index;
-                } catch (Exception e) {
-                    throw new RuntimeException(e);
-                }
-            }).forEach(indexes::add);
-        }
-
-        LOGGER.info("Searching for sha256 " + sha256);
-        Index.Pack foundPack = null;
-        Index.Pack.Blob foundBlob = null;
-        for (Index index : indexes) {
-            for (Index.Pack pack : index.packs()) {
-                for (Index.Pack.Blob blob : pack.blobs()) {
-                    if (blob.id().equals(sha256)) {
-                        foundPack = pack;
-                        foundBlob = blob;
-                        LOGGER.info("Found blob in pack " + foundPack.id());
-                        LOGGER.info("Blob: " + foundBlob);
-                        break;
-                    }
-                }
-                if (foundPack != null) break;
-            }
-            if (foundPack != null) break;
-        }
-
-        if (foundPack == null) {
-            throw new IllegalStateException("Didn't find sha256 in index");
-        }
-
-        return new FoundBlob(foundPack, foundBlob);
-    }
-
     public byte[] readContent(String sha256) throws IOException, InvalidAlgorithmParameterException, NoSuchPaddingException, IllegalBlockSizeException, NoSuchAlgorithmException, BadPaddingException, InvalidKeyException {
-        FoundBlob foundBlob = findBlob(sha256);
+        LOGGER.fine("Reading content of blob " + sha256);
+        IndexEntry indexEntry = findBlob(sha256);
 
-        Path packFile = path.resolve("data").resolve(foundBlob.pack().id().substring(0, 2)).resolve(foundBlob.pack().id());
+        Path packFile = path.resolve("data").resolve(indexEntry.packId().substring(0, 2)).resolve(indexEntry.packId());
         try (RandomAccessFile raf = new RandomAccessFile(packFile.toFile(), "r")) {
-            raf.seek(foundBlob.blob().offset());
-            byte[] encryptedBlob = new byte[foundBlob.blob().length()];
+            raf.seek(indexEntry.offset());
+            byte[] encryptedBlob = new byte[indexEntry.length()];
             int readBytes = raf.read(encryptedBlob);
-            if (readBytes != foundBlob.blob().length()) {
+            if (readBytes != indexEntry.length()) {
                 throw new IllegalStateException("Couldn't enough data");
             }
 
-            return decryptBytes(encryptedBlob, foundBlob.blob().uncompressed_length() != 0);
+            return decryptBytes(encryptedBlob, indexEntry.uncompressed_length() != 0);
         }
     }
 }

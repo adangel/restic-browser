@@ -4,6 +4,9 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.logging.Handler;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 import javax.swing.*;
 
 import org.adangel.resticbrowser.fuse.ResticFS;
@@ -11,6 +14,12 @@ import org.adangel.resticbrowser.fuse.ResticFS;
 public class GUI {
 
     public static void main(String[] args) {
+        Logger logger = Logger.getLogger("org.adangel.resticbrowser");
+        logger.setLevel(Level.FINE);
+        for (Handler handler : Logger.getLogger("").getHandlers()) {
+            handler.setLevel(Level.FINE);
+        }
+
         JFrame mainframe = new JFrame("restic-browser");
         JPanel container = new JPanel();
         BoxLayout layout = new BoxLayout(container, BoxLayout.Y_AXIS);

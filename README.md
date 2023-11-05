@@ -13,9 +13,8 @@ Java-based implementation of a browser for restic repositories.
 ## TODOs
 
 * modularize (module-info.java)
-* create jimage/jpackage versions
+* create jpackage versions/installers
 * finish implementation:
-  * caching for index
   * support v1 and v2 repo formats and legacy layout
   * don't load the files completely into memory, use streams
   * respect locks in restic repo
