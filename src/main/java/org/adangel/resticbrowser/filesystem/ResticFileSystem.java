@@ -322,70 +322,77 @@ class ResticFileSystem extends FileSystem {
     }
 
     private SeekableByteChannel createFromNode(Tree.Node node) {
-        try {
-            ByteBuffer buffer = ByteBuffer.wrap(repository.readContent(node.content().getFirst()));
-            return new SeekableByteChannel() {
-                @Override
-                public int read(ByteBuffer dst) throws IOException {
-                    int count = 0;
-                    while (dst.hasRemaining() && buffer.hasRemaining()) {
-                        dst.put(buffer.get());
-                        count++;
+        return new SeekableByteChannel() {
+            String[] contentBlobs = node.content().toArray(new String[0]);
+            private ByteBuffer currentByteBuffer = null;
+            private int blobIndex = -1;
+            private long position = 0L;
+            private long size = node.size();
+            @Override
+            public int read(ByteBuffer dst) throws IOException {
+                if (blobIndex == -1) {
+                    try {
+                        currentByteBuffer = ByteBuffer.wrap(repository.readContent(contentBlobs[++blobIndex]));
+                    } catch (Exception e) {
+                        throw new IOException(e);
                     }
-                    return count;
+                }
+                if (!currentByteBuffer.hasRemaining() && blobIndex + 1 < contentBlobs.length) {
+                    try {
+                        currentByteBuffer = ByteBuffer.wrap(repository.readContent(contentBlobs[++blobIndex]));
+                    } catch (Exception e) {
+                        throw new IOException(e);
+                    }
                 }
 
-                @Override
-                public int write(ByteBuffer src) throws IOException {
-                    throw new UnsupportedOperationException();
+                int count = 0;
+                while (dst.hasRemaining() && currentByteBuffer.hasRemaining()) {
+                    dst.put(currentByteBuffer.get());
+                    count++;
+                    position++;
                 }
 
-                @Override
-                public long position() throws IOException {
-                    return buffer.position();
+                if (count == 0 && !currentByteBuffer.hasRemaining() && blobIndex + 1 == contentBlobs.length) {
+                    return -1;
                 }
+                return count;
+            }
 
-                @Override
-                public SeekableByteChannel position(long newPosition) throws IOException {
-                    buffer.position((int) newPosition);
-                    return this;
-                }
+            @Override
+            public int write(ByteBuffer src) throws IOException {
+                throw new UnsupportedOperationException();
+            }
 
-                @Override
-                public long size() throws IOException {
-                    return buffer.limit();
-                }
+            @Override
+            public long position() throws IOException {
+                return position;
+            }
 
-                @Override
-                public SeekableByteChannel truncate(long size) throws IOException {
-                    throw new UnsupportedOperationException();
-                }
+            @Override
+            public SeekableByteChannel position(long newPosition) throws IOException {
+                throw new UnsupportedOperationException();
+            }
 
-                @Override
-                public boolean isOpen() {
-                    return true;
-                }
+            @Override
+            public long size() throws IOException {
+                return size;
+            }
 
-                @Override
-                public void close() throws IOException {
+            @Override
+            public SeekableByteChannel truncate(long size) throws IOException {
+                throw new UnsupportedOperationException();
+            }
 
-                }
-            };
-        } catch (IOException e) {
-            throw new RuntimeException(e);
-        } catch (InvalidAlgorithmParameterException e) {
-            throw new RuntimeException(e);
-        } catch (NoSuchPaddingException e) {
-            throw new RuntimeException(e);
-        } catch (IllegalBlockSizeException e) {
-            throw new RuntimeException(e);
-        } catch (NoSuchAlgorithmException e) {
-            throw new RuntimeException(e);
-        } catch (BadPaddingException e) {
-            throw new RuntimeException(e);
-        } catch (InvalidKeyException e) {
-            throw new RuntimeException(e);
-        }
+            @Override
+            public boolean isOpen() {
+                return true;
+            }
+
+            @Override
+            public void close() throws IOException {
+
+            }
+        };
     }
 
     SeekableByteChannel newByteChannel(String path, Set<? extends OpenOption> options, FileAttribute<?>... attrs) {
