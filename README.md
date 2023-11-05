@@ -1,4 +1,5 @@
 # restic-browser
+[![Java CI with Maven](https://github.com/adangel/restic-browser/actions/workflows/maven.yml/badge.svg)](https://github.com/adangel/restic-browser/actions/workflows/maven.yml)
 
 Java-based implementation of a browser for restic repositories.
 [restic](https://restic.net/) is a modern backup program.
