@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.List;
@@ -73,5 +74,14 @@ class RepositoryTest {
         Repository repository = new Repository(Path.of("src/test/resources/repos/repo1"), "test");
         byte[] data = repository.readContent("c9d04c9565fc665c80681fb1d829938026871f66e14f501e08531df66938a789");
         assertEquals("Test\n", new String(data, StandardCharsets.UTF_8));
+    }
+
+    @Test
+    void readContentAsStream() throws Exception {
+        Repository repository = new Repository(Path.of("src/test/resources/repos/repo1"), "test");
+        try (InputStream stream = repository.readContentAsStream("c9d04c9565fc665c80681fb1d829938026871f66e14f501e08531df66938a789")) {
+            byte[] bytes = stream.readAllBytes();
+            assertEquals("Test\n", new String(bytes, StandardCharsets.UTF_8));
+        }
     }
 }

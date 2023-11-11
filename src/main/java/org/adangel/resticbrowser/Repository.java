@@ -1,8 +1,11 @@
 package org.adangel.resticbrowser;
 
 import java.io.ByteArrayInputStream;
+import java.io.FilterInputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.RandomAccessFile;
+import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -25,6 +28,7 @@ import javax.crypto.BadPaddingException;
 import javax.crypto.Cipher;
 import javax.crypto.IllegalBlockSizeException;
 import javax.crypto.NoSuchPaddingException;
+import javax.crypto.ShortBufferException;
 import javax.crypto.spec.IvParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
 
@@ -351,5 +355,169 @@ public class Repository {
 
             return decryptBytes(encryptedBlob, indexEntry.uncompressed_length() != 0);
         }
+    }
+
+    public InputStream readContentAsStream(String sha256) throws IOException, NoSuchPaddingException, NoSuchAlgorithmException, InvalidAlgorithmParameterException, InvalidKeyException {
+        LOGGER.fine("Reading content of blob " + sha256);
+        IndexEntry indexEntry = findBlob(sha256);
+
+        Path packFile = path.resolve("data").resolve(indexEntry.packId().substring(0, 2)).resolve(indexEntry.packId());
+
+        InputStream encryptedStream = new InputStream() {
+            private RandomAccessFile raf;
+            private long bytesRead = 0;
+            private final long length = indexEntry.length();
+
+            {
+                raf = new RandomAccessFile(packFile.toFile(), "r");
+                raf.seek(indexEntry.offset());
+            }
+
+            @Override
+            public int read() throws IOException {
+                if (bytesRead >= length) {
+                    return -1;
+                }
+                bytesRead++;
+                return raf.read();
+            }
+
+            @Override
+            public void close() throws IOException {
+                raf.close();
+            }
+        };
+
+        InputStream decryptedStream = new FilterInputStream(encryptedStream) {
+            private Poly1305 mac;
+            private Cipher cipher;
+            private ByteBuffer encryptedBuffer = ByteBuffer.allocate(512);
+            private ByteBuffer decryptedBuffer;
+            private long bytesRead = 0;
+            private final long encryptedLength = indexEntry.length() - /* MAC */ 16;
+
+            {
+                byte[] ivData = new byte[16];
+                in.read(ivData);
+                IvParameterSpec iv = new IvParameterSpec(ivData);
+                cipher = Cipher.getInstance("AES/CTR/NoPadding");
+                cipher.init(Cipher.DECRYPT_MODE, masterKeySpec, iv);
+
+                decryptedBuffer = ByteBuffer.allocate(cipher.getOutputSize(encryptedBuffer.limit()));
+                decryptedBuffer.position(decryptedBuffer.limit()); // no data in the buffer yet
+
+                mac = new Poly1305(AESEngine.newInstance());
+                mac.init(new ParametersWithIV(macParams, iv.getIV()));
+            }
+
+
+            @Override
+            public int read() throws IOException {
+                if (decryptedBuffer.hasRemaining()) {
+                    return (int) decryptedBuffer.get();
+                }
+
+                if (bytesRead + 16 == encryptedLength) {
+                    byte[] originalMac = new byte[16];
+                    in.read(originalMac);
+
+                    byte[] calculatedMac = new byte[mac.getMacSize()];
+                    mac.doFinal(calculatedMac, 0);
+
+                    if (!Arrays.equals(originalMac, calculatedMac)) {
+                        LOGGER.severe("MAC doesn't match");
+                        throw new RuntimeException("MAC Doesn't match");
+                    }
+
+                    return -1;
+                }
+
+                // read up to all, but not the last 16 bytes - the MAC
+                int toRead = (int) Math.min(encryptedLength - 16 - bytesRead, (long) encryptedBuffer.capacity());
+
+                int read = in.read(encryptedBuffer.array(), 0, toRead);
+                bytesRead += read;
+                encryptedBuffer.rewind();
+                encryptedBuffer.limit(read);
+
+                mac.update(encryptedBuffer.array(), 0, read);
+
+                decryptedBuffer.rewind();
+                try {
+                    int out = cipher.update(encryptedBuffer, decryptedBuffer);
+                    decryptedBuffer.rewind();
+                    decryptedBuffer.limit(out);
+                } catch (ShortBufferException e) {
+                    throw new RuntimeException(e);
+                }
+
+                if (decryptedBuffer.hasRemaining()) {
+                    return decryptedBuffer.get();
+                }
+
+                throw new IllegalStateException("no data decrypted??");
+            }
+
+            @Override
+            public int read(byte[] b, int off, int len) throws IOException {
+                if (decryptedBuffer.hasRemaining()) {
+                    int available = Math.min(len, decryptedBuffer.remaining());
+                    decryptedBuffer.get(b, off, available);
+                    return available;
+                }
+
+                for (int i = 0; i < len; i++) {
+                    int c = read();
+                    if (c == -1) {
+                        if (i == 0) {
+                            return -1;
+                        } else {
+                            return i;
+                        }
+                    }
+                    b[off + i] = (byte) c;
+                }
+                return len;
+            }
+        };
+
+        boolean isCompressed = indexEntry.uncompressed_length() != 0;
+        if (isCompressed) {
+            InputStream decompressedStream = new FilterInputStream(new ZstdCompressorInputStream(decryptedStream)) {
+                private long bytesRead = 0;
+                private final long length = indexEntry.uncompressed_length();
+
+                @Override
+                public int read() throws IOException {
+                    if (bytesRead >= length) {
+                        return -1;
+                    }
+                    bytesRead++;
+                    return super.read();
+                }
+
+                @Override
+                public int read(byte[] b, int off, int len) throws IOException {
+                    if (bytesRead >= length) {
+                        return -1;
+                    }
+                    if (len == 0) {
+                        return 0;
+                    }
+                    if (length - bytesRead > len) {
+                        int read = super.read(b, off, len);
+                        bytesRead += read;
+                        return read;
+                    }
+                    int available = (int) (length - bytesRead);
+                    int read = super.read(b, off, available);
+                    bytesRead += read;
+                    return read;
+                }
+            };
+            return decompressedStream;
+        }
+
+        return decryptedStream;
     }
 }
