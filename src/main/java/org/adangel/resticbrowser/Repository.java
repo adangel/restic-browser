@@ -358,7 +358,7 @@ public class Repository {
     }
 
     public InputStream readContentAsStream(String sha256) throws IOException, NoSuchPaddingException, NoSuchAlgorithmException, InvalidAlgorithmParameterException, InvalidKeyException {
-        LOGGER.fine("Reading content of blob " + sha256);
+        LOGGER.fine("Reading content as stream of blob " + sha256);
         IndexEntry indexEntry = findBlob(sha256);
 
         Path packFile = path.resolve("data").resolve(indexEntry.packId().substring(0, 2)).resolve(indexEntry.packId());

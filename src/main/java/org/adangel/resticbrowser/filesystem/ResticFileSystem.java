@@ -26,6 +26,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.logging.Logger;
 
 import javax.crypto.BadPaddingException;
 import javax.crypto.IllegalBlockSizeException;
@@ -36,6 +37,7 @@ import org.adangel.resticbrowser.models.SnapshotWithId;
 import org.adangel.resticbrowser.models.Tree;
 
 class ResticFileSystem extends FileSystem {
+    private static final Logger LOGGER = Logger.getLogger(ResticFileSystem.class.getName());
     private final ResticFileSystemProvider provider;
     private final Repository repository;
     private final ResticPath rootPath;
@@ -322,6 +324,10 @@ class ResticFileSystem extends FileSystem {
     }
 
     private SeekableByteChannel createFromNode(Tree.Node node) {
+        if (node.content().size() > 1) {
+            LOGGER.info("Multiple content chunks: " + node.content().size());
+        }
+
         return new SeekableByteChannel() {
             String[] contentBlobs = node.content().toArray(new String[0]);
             private ByteBuffer currentByteBuffer = null;

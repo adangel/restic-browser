@@ -81,3 +81,33 @@ snapshot f9bd1daf of [/data] filtered by [] at 2023-11-03 18:57:18.213904491 +01
 /data/symlink.txt
 /data/symlink2.txt
 ```
+
+## repo4
+* created restic repository 45bcb7fd8b at repo4 old
+* created restic repository 14ed0f6cbb at repo4
+* format: v2
+* Password: `test`
+* See also <https://restic.net/blog/2015-09-12/restic-foundation1-cdc/>
+
+```
+$ dd if=/dev/urandom of=file.raw bs=1M count=2
+$ sha256sum file.raw
+4360fffcd35689d5ae2ca95b28b289bebf15905d3db33f4e918ae814f9140841  file.raw
+# file size is 2097152 bytes
+```
+* Snapshots:
+```
+$ restic --repo repo4 snapshots
+repository 14ed0f6c opened (version 2, compression level auto)
+ID        Time                 Host        Tags        Paths
+----------------------------------------------------------------
+a9e4ac2f  2023-11-11 22:38:09  adangel                 /file.raw
+----------------------------------------------------------------
+1 snapshots
+```
+* Content of snapshot a9e4ac2f:
+```
+$ restic --repo repo4 ls 36d7d9ee
+snapshot a9e4ac2f of [/file.raw] filtered by [] at 2023-11-11 22:38:09.423735641 +0100 CET):
+/file.raw
+```
