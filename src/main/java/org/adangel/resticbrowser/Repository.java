@@ -414,7 +414,7 @@ public class Repository {
             @Override
             public int read() throws IOException {
                 if (decryptedBuffer.hasRemaining()) {
-                    return (int) decryptedBuffer.get();
+                    return (int) decryptedBuffer.get() & 0xff;
                 }
 
                 if (bytesRead + 16 == encryptedLength) {
@@ -452,7 +452,7 @@ public class Repository {
                 }
 
                 if (decryptedBuffer.hasRemaining()) {
-                    return decryptedBuffer.get();
+                    return decryptedBuffer.get() & 0xff;
                 }
 
                 throw new IllegalStateException("no data decrypted??");
