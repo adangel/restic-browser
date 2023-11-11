@@ -294,7 +294,7 @@ public class Repository {
             return treeCache.get(tree);
         }
         LOGGER.fine("Loading tree " + tree);
-        Tree loadedTree = MAPPER.readValue(readContent(tree), Tree.class);
+        Tree loadedTree = MAPPER.readValue(readContentAsStream(tree), Tree.class);
         treeCache.put(tree, loadedTree);
         return loadedTree;
     }
