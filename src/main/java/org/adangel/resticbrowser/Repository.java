@@ -520,4 +520,42 @@ public class Repository {
 
         return decryptedStream;
     }
+
+    public InputStream readNode(Tree.Node node) throws IOException {
+        return new InputStream() {
+            private int currentChunkIndex = 0;
+            private InputStream currentChunk;
+
+            {
+                try {
+                    currentChunk = readContentAsStream(node.content().get(currentChunkIndex));
+                } catch (NoSuchPaddingException | NoSuchAlgorithmException | InvalidAlgorithmParameterException |
+                         InvalidKeyException e) {
+                    throw new IOException(e);
+                }
+            }
+
+            @Override
+            public int read() throws IOException {
+                int read = currentChunk.read();
+                if (read == -1 && currentChunkIndex + 1 < node.content().size()) {
+                    currentChunk.close();
+                    currentChunkIndex++;
+                    try {
+                        currentChunk = readContentAsStream(node.content().get(currentChunkIndex));
+                    } catch (NoSuchPaddingException | NoSuchAlgorithmException | InvalidAlgorithmParameterException |
+                             InvalidKeyException e) {
+                        throw new IOException(e);
+                    }
+                    read = currentChunk.read();
+                }
+                return read;
+            }
+
+            @Override
+            public void close() throws IOException {
+                currentChunk.close();
+            }
+        };
+    }
 }

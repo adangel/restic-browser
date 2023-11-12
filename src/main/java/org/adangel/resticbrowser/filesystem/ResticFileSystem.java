@@ -2,6 +2,7 @@ package org.adangel.resticbrowser.filesystem;
 
 import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.io.InputStream;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.nio.ByteBuffer;
@@ -323,43 +324,28 @@ class ResticFileSystem extends FileSystem {
         }
     }
 
-    private SeekableByteChannel createFromNode(Tree.Node node) {
-        if (node.content().size() > 1) {
-            LOGGER.info("Multiple content chunks: " + node.content().size());
-        }
-
+    private SeekableByteChannel createFromNode(Tree.Node node) throws IOException {
         return new SeekableByteChannel() {
-            String[] contentBlobs = node.content().toArray(new String[0]);
+            private InputStream in = repository.readNode(node);
+
             private ByteBuffer currentByteBuffer = null;
-            private int blobIndex = -1;
             private long position = 0L;
             private long size = node.size();
             @Override
             public int read(ByteBuffer dst) throws IOException {
-                if (blobIndex == -1) {
-                    try {
-                        currentByteBuffer = ByteBuffer.wrap(repository.readContent(contentBlobs[++blobIndex]));
-                    } catch (Exception e) {
-                        throw new IOException(e);
-                    }
-                }
-                if (!currentByteBuffer.hasRemaining() && blobIndex + 1 < contentBlobs.length) {
-                    try {
-                        currentByteBuffer = ByteBuffer.wrap(repository.readContent(contentBlobs[++blobIndex]));
-                    } catch (Exception e) {
-                        throw new IOException(e);
-                    }
-                }
-
                 int count = 0;
-                while (dst.hasRemaining() && currentByteBuffer.hasRemaining()) {
-                    dst.put(currentByteBuffer.get());
+                while (dst.hasRemaining()) {
+                    int read = in.read();
+                    if (read == -1) {
+                        if (count == 0) {
+                            return -1;
+                        } else {
+                            return count;
+                        }
+                    }
                     count++;
                     position++;
-                }
-
-                if (count == 0 && !currentByteBuffer.hasRemaining() && blobIndex + 1 == contentBlobs.length) {
-                    return -1;
+                    dst.put((byte) read);
                 }
                 return count;
             }
@@ -396,7 +382,7 @@ class ResticFileSystem extends FileSystem {
 
             @Override
             public void close() throws IOException {
-
+                in.close();
             }
         };
     }
