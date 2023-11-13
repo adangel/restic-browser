@@ -103,7 +103,7 @@ public class GUI {
         umount.setEnabled(false);
         mount.addActionListener(e -> {
             try {
-                fs.set(new ResticFS(Path.of(repoPathField.getText()), Map.of("RESTIC_PASSWORD", new String(repoPassword.getPassword()))));
+                fs.set(new ResticFS(Path.of(repoPathField.getText()), new String(repoPassword.getPassword())));
                 fs.get().mount(Path.of(mountPathField.getText()));
                 info.setText("Mounted at " + mountPathField.getText());
                 mount.setEnabled(false);
