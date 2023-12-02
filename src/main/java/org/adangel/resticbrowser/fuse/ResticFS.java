@@ -1,6 +1,7 @@
 package org.adangel.resticbrowser.fuse;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.nio.channels.SeekableByteChannel;
 import java.nio.charset.StandardCharsets;
@@ -33,7 +34,7 @@ public class ResticFS extends FuseStubFS {
     private static final Logger LOGGER = Logger.getLogger(ResticFS.class.getName());
     private final FileSystem fileSystem;
 
-    private final Map<Long, SeekableByteChannel> openfiles = new HashMap<>();
+    private final Map<Long, InputStream> openfiles = new HashMap<>();
 
     public ResticFS(Path repositoryPath, String password) throws IOException {
         ResticFileSystemProvider provider = new ResticFileSystemProvider();
@@ -126,7 +127,7 @@ public class ResticFS extends FuseStubFS {
 
         try {
             long handle = ThreadLocalRandom.current().nextLong();
-            SeekableByteChannel channel = Files.newByteChannel(resticPath);
+            InputStream channel = Files.newInputStream(resticPath);
             fi.fh.set(handle);
             openfiles.put(handle, channel);
             LOGGER.log(Level.INFO, "Opened file " + resticPath + " (handle=" + handle + ")");
@@ -140,7 +141,7 @@ public class ResticFS extends FuseStubFS {
     @Override
     public int release(String path, FuseFileInfo fi) {
         LOGGER.log(Level.INFO, "Closing file with handle " + fi.fh.get());
-        SeekableByteChannel channel = openfiles.remove(fi.fh.get());
+        InputStream channel = openfiles.remove(fi.fh.get());
         if (channel != null) {
             try {
                 channel.close();
@@ -172,20 +173,20 @@ public class ResticFS extends FuseStubFS {
         }
 
         try {
-            SeekableByteChannel channel = openfiles.get(fi.fh.get());
+            InputStream channel = openfiles.get(fi.fh.get());
             if (channel == null) {
                 LOGGER.log(Level.SEVERE, "No open channel found for file handle");
                 return -ErrorCodes.EIO();
             }
 
-            synchronized (channel) {
-                if (channel.position() != offset) {
-                    LOGGER.log(Level.SEVERE, "file channel is at " + channel.position() + " which doesn't match requested offset");
-                    return -ErrorCodes.EIO();
-                }
+            // synchronized (channel) {
+                // if (channel.position() != offset) {
+                //     LOGGER.log(Level.SEVERE, "file channel is at " + channel.position() + " which doesn't match requested offset");
+                //     return -ErrorCodes.EIO();
+                // }
 
                 ByteBuffer buffer = ByteBuffer.allocate((int) size);
-                int bytesRead = channel.read(buffer);
+                int bytesRead = channel.read(buffer.array());
 
                 if (bytesRead > 0) {
                     buf.put(0, buffer.array(), 0, bytesRead);
@@ -194,7 +195,7 @@ public class ResticFS extends FuseStubFS {
                     LOGGER.log(Level.INFO, "Reached end-of-file");
                     return 0; // EOF
                 }
-            }
+            // }
         } catch (IOException e) {
             LOGGER.log(Level.SEVERE, "Error while reading file " + path, e);
             return -ErrorCodes.EIO();
