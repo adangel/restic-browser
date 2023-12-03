@@ -21,13 +21,15 @@ import java.util.stream.Stream;
 
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.EnabledIf;
 import org.junit.jupiter.api.condition.EnabledOnOs;
 import org.junit.jupiter.api.condition.OS;
 import org.junit.jupiter.api.io.TempDir;
 
+import ru.serce.jnrfuse.FuseStubFS;
 import ru.serce.jnrfuse.utils.MountUtils;
 
-@EnabledOnOs(OS.LINUX)
+@EnabledIf("fuseIsAvailable")
 class ResticFSTest {
     @TempDir
     private Path tempdir;
@@ -35,6 +37,15 @@ class ResticFSTest {
     @BeforeAll
     static void initLogging() throws IOException {
         LogManager.getLogManager().readConfiguration(ResticFSTest.class.getResourceAsStream("/logging.properties"));
+    }
+
+    static boolean fuseIsAvailable() {
+        try {
+            new FuseStubFS() {};
+            return true;
+        } catch (UnsatisfiedLinkError e) {
+            return false;
+        }
     }
 
     @Test
@@ -107,6 +118,7 @@ class ResticFSTest {
      * Reads the file externally with {@code sha256sum}, which will access the file via FUSE with a different
      * multi-threaded pattern.
      */
+    @EnabledOnOs(OS.LINUX)
     @Test
     void readFileExternally() throws IOException, InterruptedException {
         ResticFS fs = new ResticFS(Path.of("src/test/resources/repos/repo4"), "test");
