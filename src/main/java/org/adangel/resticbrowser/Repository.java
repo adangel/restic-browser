@@ -528,6 +528,7 @@ public class Repository {
 
             {
                 try {
+                    LOGGER.info("Read Node: " + node.name() + " has " + node.content().size() + " content blobs");
                     currentChunk = readContentAsStream(node.content().get(currentChunkIndex));
                 } catch (NoSuchPaddingException | NoSuchAlgorithmException | InvalidAlgorithmParameterException |
                          InvalidKeyException e) {

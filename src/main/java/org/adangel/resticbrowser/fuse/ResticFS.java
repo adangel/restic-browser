@@ -3,7 +3,6 @@ package org.adangel.resticbrowser.fuse;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.ByteBuffer;
-import java.nio.channels.SeekableByteChannel;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.FileSystem;
 import java.nio.file.Files;
@@ -12,8 +11,8 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.nio.file.attribute.FileTime;
-import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 import java.util.logging.Level;
@@ -34,7 +33,26 @@ public class ResticFS extends FuseStubFS {
     private static final Logger LOGGER = Logger.getLogger(ResticFS.class.getName());
     private final FileSystem fileSystem;
 
-    private final Map<Long, InputStream> openfiles = new HashMap<>();
+    private static class OpenFileHandle {
+        final long handle;
+        final InputStream stream;
+        long offset;
+
+        public OpenFileHandle(long handle, InputStream stream) {
+            this.handle = handle;
+            this.stream = stream;
+            this.offset = 0L;
+        }
+
+        public synchronized long getOffset() {
+            return offset;
+        }
+
+        public synchronized void incrementOffset(int bytesRead) {
+            offset += bytesRead;
+        }
+    }
+    private final Map<Long, OpenFileHandle> openfiles = new ConcurrentHashMap<>();
 
     public ResticFS(Path repositoryPath, String password) throws IOException {
         ResticFileSystemProvider provider = new ResticFileSystemProvider();
@@ -129,7 +147,7 @@ public class ResticFS extends FuseStubFS {
             long handle = ThreadLocalRandom.current().nextLong();
             InputStream channel = Files.newInputStream(resticPath);
             fi.fh.set(handle);
-            openfiles.put(handle, channel);
+            openfiles.put(handle, new OpenFileHandle(handle, channel));
             LOGGER.log(Level.INFO, "Opened file " + resticPath + " (handle=" + handle + ")");
             return 0;
         } catch (IOException e) {
@@ -141,7 +159,8 @@ public class ResticFS extends FuseStubFS {
     @Override
     public int release(String path, FuseFileInfo fi) {
         LOGGER.log(Level.INFO, "Closing file with handle " + fi.fh.get());
-        InputStream channel = openfiles.remove(fi.fh.get());
+        OpenFileHandle openFileHandle = openfiles.remove(fi.fh.get());
+        InputStream channel = openFileHandle.stream;
         if (channel != null) {
             try {
                 channel.close();
@@ -173,29 +192,42 @@ public class ResticFS extends FuseStubFS {
         }
 
         try {
-            InputStream channel = openfiles.get(fi.fh.get());
-            if (channel == null) {
+            OpenFileHandle openFileHandle = openfiles.get(fi.fh.get());
+            if (openFileHandle == null) {
                 LOGGER.log(Level.SEVERE, "No open channel found for file handle");
                 return -ErrorCodes.EIO();
             }
 
-            // synchronized (channel) {
-                // if (channel.position() != offset) {
-                //     LOGGER.log(Level.SEVERE, "file channel is at " + channel.position() + " which doesn't match requested offset");
-                //     return -ErrorCodes.EIO();
-                // }
+            synchronized (openFileHandle) {
+                InputStream channel = openFileHandle.stream;
+                long currentOffset = openFileHandle.getOffset();
+                if (currentOffset != offset) {
+                    // note 1: this might be hit multiple times during the read of a file - there are often multiple
+                    // read threads in parallel. But returning here EIO causes the reading code to retry, possibly with
+                    // a smaller buffer size (because it thinks we actually have IO problems).
+                    // This makes the reading of the file slower, but at least, we read it correctly (e.g. all bytes
+                    // in the correct order).
+                    // note 2: having this synchronization blocks helps to avoid this situation, if the file is read
+                    // from within the same java process (that means, the same process that handles the FUSE mount).
+                    // when the file is read from another process (possibly non-java), then this synchronization doesn't
+                    // help.
+                    LOGGER.log(Level.SEVERE, "file channel is at " + currentOffset + " which doesn't match requested offset " + offset);
+                    return -ErrorCodes.EIO();
+                }
 
                 ByteBuffer buffer = ByteBuffer.allocate((int) size);
+                LOGGER.log(Level.INFO, Thread.currentThread().getName() + "|Actual Reading from file " + path + " (handle " + fi.fh.get() + ") offset=" + offset + " size=" + size);
                 int bytesRead = channel.read(buffer.array());
 
                 if (bytesRead > 0) {
+                    openFileHandle.incrementOffset(bytesRead);
                     buf.put(0, buffer.array(), 0, bytesRead);
                     return bytesRead;
                 } else {
                     LOGGER.log(Level.INFO, "Reached end-of-file");
                     return 0; // EOF
                 }
-            // }
+            }
         } catch (IOException e) {
             LOGGER.log(Level.SEVERE, "Error while reading file " + path, e);
             return -ErrorCodes.EIO();
